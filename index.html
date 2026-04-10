@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>像素动画工具 - PixelForge</title>
+  <title>PixelForge - 像素动画工具</title>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -12,18 +12,215 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
   <style>
+    :root {
+      --bg-dark: #1a1a2e;
+      --bg-card: #1f4068;
+      --bg-card-hover: #264573;
+      --accent: #00d9ff;
+      --accent-glow: rgba(0, 217, 255, 0.4);
+      --accent-secondary: #e94560;
+      --accent-secondary-glow: rgba(233, 69, 96, 0.4);
+      --text-primary: #eaeaea;
+      --text-secondary: #a0aec0;
+      --text-muted: #6b7280;
+      --border: #2a2a4a;
+      --border-light: #3d3d6b;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: #0f1117; color: #e2e8f0; font-family: Inter, system-ui, sans-serif; }
-    input[type="range"] { -webkit-appearance: none; background: #1e293b; border-radius: 4px; height: 6px; cursor: pointer; }
-    input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #6366f1; cursor: pointer; }
-    .drop-zone.drag-over { border-color: #6366f1 !important; background: rgba(99,102,241,0.1); }
+    body { 
+      background: var(--bg-dark); 
+      color: var(--text-primary); 
+      font-family: 'SF Mono', 'Fira Code', 'Consolas', system-ui, sans-serif;
+      min-height: 100vh;
+    }
+    input[type="range"] { 
+      -webkit-appearance: none; 
+      background: var(--border); 
+      border-radius: 4px; 
+      height: 6px; 
+      cursor: pointer; 
+    }
+    input[type="range"]::-webkit-slider-thumb { 
+      -webkit-appearance: none; 
+      width: 16px; 
+      height: 16px; 
+      border-radius: 4px; 
+      background: var(--accent); 
+      cursor: pointer;
+      box-shadow: 0 0 8px var(--accent-glow);
+    }
+    .drop-zone { 
+      border: 2px dashed var(--border-light);
+      transition: all 0.3s ease;
+    }
+    .drop-zone.drag-over { 
+      border-color: var(--accent) !important; 
+      background: rgba(0, 217, 255, 0.08);
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+    @keyframes pulse-border {
+      0%, 100% { border-color: var(--border-light); }
+      50% { border-color: var(--accent); }
+    }
+    .drop-zone-idle {
+      animation: pulse-border 3s ease-in-out infinite;
+    }
     ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: #1e293b; }
-    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
-    .frame-item { transition: all 0.2s; }
-    .frame-item.selected { box-shadow: 0 0 0 3px #6366f1; }
-    .frame-item:hover { transform: scale(1.05); }
-    .frame-list { display: flex; gap: 8px; flex-wrap: wrap; }
+    ::-webkit-scrollbar-track { background: var(--bg-dark); }
+    ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+    
+    /* Button styles */
+    .btn {
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 14px;
+      transition: all 0.2s ease;
+      cursor: pointer;
+      border: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-primary {
+      background: var(--accent);
+      color: var(--bg-dark);
+    }
+    .btn-primary:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+    .btn-secondary {
+      background: var(--bg-card);
+      color: var(--text-primary);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--accent);
+      box-shadow: 0 0 12px var(--accent-glow);
+    }
+    .btn-danger {
+      background: var(--accent-secondary);
+      color: white;
+    }
+    .btn-danger:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 20px var(--accent-secondary-glow);
+    }
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      transform: none !important;
+      box-shadow: none !important;
+    }
+    
+    /* Frame item */
+    .frame-item { transition: all 0.2s ease; }
+    .frame-item.selected { 
+      box-shadow: 0 0 0 3px var(--accent), 0 0 15px var(--accent-glow);
+    }
+    .frame-item:hover { transform: scale(1.08); }
+    
+    /* Card styles */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      transition: all 0.2s ease;
+    }
+    .card:hover {
+      border-color: var(--border-light);
+    }
+    
+    /* Title font */
+    .title-text {
+      font-family: 'Courier New', monospace;
+      letter-spacing: 2px;
+    }
+    
+    /* Section headers */
+    .section-title {
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    
+    /* Preview canvas container */
+    .canvas-container {
+      background: #0d0d1a;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 200px;
+      overflow: hidden;
+    }
+    
+    /* Progress bar */
+    .progress-bar {
+      background: var(--border);
+      border-radius: 4px;
+      height: 8px;
+      overflow: hidden;
+    }
+    .progress-fill {
+      background: linear-gradient(90deg, var(--accent), var(--accent-secondary));
+      height: 100%;
+      transition: width 0.3s ease;
+      box-shadow: 0 0 10px var(--accent-glow);
+    }
+    
+    /* Input styles */
+    input[type="text"],
+    input[type="number"],
+    select {
+      background: var(--bg-dark);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text-primary);
+      padding: 8px 12px;
+      font-size: 14px;
+      transition: all 0.2s ease;
+    }
+    input[type="text"]:focus,
+    input[type="number"]:focus,
+    select:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 10px var(--accent-glow);
+    }
+    
+    /* Tooltip badge */
+    .badge {
+      background: var(--accent);
+      color: var(--bg-dark);
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    
+    /* Grid layout */
+    .toolbar-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    
+    /* Frame list */
+    .frame-list { 
+      display: flex; 
+      gap: 10px; 
+      flex-wrap: wrap; 
+    }
   </style>
 </head>
 <body>
@@ -92,6 +289,7 @@
       const [exportProgress, setExportProgress] = useState(0);
       const [frameNaming, setFrameNaming] = useState("frame_{n}");
       const [draggedIndex, setDraggedIndex] = useState(null);
+      const [spriteCols, setSpriteCols] = useState(4);
       const origCanvasRef = useRef(null);
       const pixelCanvasRef = useRef(null);
       const playTimeoutRef = useRef(null);
@@ -200,7 +398,6 @@
             duration: Math.round(1000 / fps)
           };
           setFrames(prev => [...prev, newFrame]);
-          setCurrentFrameIndex(prev => prev);
         };
         imgEl.src = url;
       };
@@ -365,6 +562,164 @@
         setExportProgress(0);
       };
 
+      // Day 3: Sprite Sheet Export
+      const exportSpriteSheet = async () => {
+        if (frames.length === 0) return;
+        setIsExporting(true);
+        setExportProgress(0);
+
+        const cols = Math.min(spriteCols, frames.length);
+        const rows = Math.ceil(frames.length / cols);
+        
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = res * cols;
+        tempCanvas.height = res * rows;
+        const tempCtx = tempCanvas.getContext('2d');
+
+        for (let i = 0; i < frames.length; i++) {
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+          const frameCanvas = document.createElement('canvas');
+          frameCanvas.width = res;
+          frameCanvas.height = res;
+          processFrameToCanvas(frames[i], frameCanvas);
+          tempCtx.imageSmoothingEnabled = false;
+          tempCtx.drawImage(frameCanvas, col * res, row * res);
+          setExportProgress(Math.round((i + 1) / frames.length * 80));
+        }
+
+        const dataUrl = tempCanvas.toDataURL('image/png');
+        const link = document.createElement('a');
+        link.download = 'spritesheet.png';
+        link.href = dataUrl;
+        link.click();
+
+        setExportProgress(100);
+        setTimeout(() => {
+          setIsExporting(false);
+          setExportProgress(0);
+        }, 500);
+      };
+
+      // Day 3: JSON Metadata Export
+      const exportJson = () => {
+        if (frames.length === 0) return;
+        setIsExporting(true);
+        setExportProgress(0);
+
+        const cols = Math.min(spriteCols, frames.length);
+        const rows = Math.ceil(frames.length / cols);
+
+        const framesData = frames.map((frame, i) => {
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+          return {
+            index: i,
+            filename: frame.name,
+            duration: frame.duration,
+            frame: {
+              x: col * res,
+              y: row * res,
+              w: res,
+              h: res
+            }
+          };
+        });
+
+        const jsonData = {
+          name: "PixelForge Export",
+          version: "1.0",
+          frameCount: frames.length,
+          frameSize: { w: res, h: res },
+          spriteSize: { w: res * cols, h: res * rows },
+          columns: cols,
+          rows: rows,
+          frames: framesData
+        };
+
+        const blob = new Blob([JSON.stringify(jsonData, null, 2)], { type: 'application/json' });
+        saveAs(blob, 'spritesheet.json');
+        
+        setExportProgress(100);
+        setTimeout(() => {
+          setIsExporting(false);
+          setExportProgress(0);
+        }, 500);
+      };
+
+      // Combined Sprite Sheet + JSON export
+      const exportSpriteSheetWithJson = async () => {
+        if (frames.length === 0) return;
+        setIsExporting(true);
+        setExportProgress(0);
+
+        const cols = Math.min(spriteCols, frames.length);
+        const rows = Math.ceil(frames.length / cols);
+
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = res * cols;
+        tempCanvas.height = res * rows;
+        const tempCtx = tempCanvas.getContext('2d');
+
+        const framesData = [];
+
+        for (let i = 0; i < frames.length; i++) {
+          const col = i % cols;
+          const row = Math.floor(i / cols);
+          
+          const frameCanvas = document.createElement('canvas');
+          frameCanvas.width = res;
+          frameCanvas.height = res;
+          processFrameToCanvas(frames[i], frameCanvas);
+          tempCtx.imageSmoothingEnabled = false;
+          tempCtx.drawImage(frameCanvas, col * res, row * res);
+
+          framesData.push({
+            index: i,
+            filename: frames[i].name,
+            duration: frames[i].duration,
+            frame: {
+              x: col * res,
+              y: row * res,
+              w: res,
+              h: res
+            }
+          });
+
+          setExportProgress(Math.round((i + 1) / frames.length * 70));
+        }
+
+        // Export PNG
+        const dataUrl = tempCanvas.toDataURL('image/png');
+        const link = document.createElement('a');
+        link.download = 'spritesheet.png';
+        link.href = dataUrl;
+        link.click();
+
+        setExportProgress(85);
+
+        // Export JSON
+        const jsonData = {
+          name: "PixelForge Export",
+          version: "1.0",
+          frameCount: frames.length,
+          frameSize: { w: res, h: res },
+          spriteSize: { w: res * cols, h: res * rows },
+          columns: cols,
+          rows: rows,
+          frames: framesData
+        };
+
+        const jsonBlob = new Blob([JSON.stringify(jsonData, null, 2)], { type: 'application/json' });
+        saveAs(jsonBlob, 'spritesheet.json');
+
+        setExportProgress(100);
+        setTimeout(() => {
+          setIsExporting(false);
+          setExportProgress(0);
+        }, 500);
+      };
+
       const getFrameThumbnail = (frame) => {
         const canvas = document.createElement('canvas');
         canvas.width = 48;
@@ -383,56 +738,91 @@
 
       return React.createElement("div", { className: "min-h-screen p-4 md:p-6" },
         React.createElement("div", { className: "max-w-7xl mx-auto" },
-          React.createElement("h1", { className: "text-2xl font-bold mb-6 text-center" }, "像素动画工具 - PixelForge"),
+          // Header
+          React.createElement("div", { className: "text-center mb-6" },
+            React.createElement("h1", { className: "title-text text-3xl font-bold mb-2" }, 
+              React.createElement("span", { style: { color: 'var(--accent)' } }, "PIXEL"),
+              React.createElement("span", { style: { color: 'var(--accent-secondary)' } }, "FORGE")
+            ),
+            React.createElement("p", { className: "text-sm", style: { color: 'var(--text-muted)' } }, "像素动画工具 · Day 1-3 完整版")
+          ),
           
-          React.createElement("div", { className: "mb-4 p-3 bg-slate-800/50 rounded-xl" },
-            React.createElement("div", { className: "flex flex-wrap gap-2 items-center justify-center" },
+          // Toolbar
+          React.createElement("div", { className: "card mb-4" },
+            React.createElement("div", { className: "toolbar-grid" },
               React.createElement("button", {
                 onClick: addFrameFromImage,
-                className: "px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-sm font-medium transition-colors"
-              }, "添加帧"),
+                className: "btn btn-primary"
+              }, "+ 添加帧"),
               React.createElement("button", {
                 onClick: togglePlay,
                 disabled: frames.length < 2,
-                className: "px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-600 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-              }, isPlaying ? React.createElement("span", null, "⏸ 暂停") : React.createElement("span", null, "▶ 播放")),
+                className: "btn btn-secondary"
+              }, isPlaying ? "⏸ 暂停" : "▶ 播放"),
               React.createElement("div", { className: "flex items-center gap-2" },
-                React.createElement("span", { className: "text-sm text-slate-400" }, "FPS:"),
+                React.createElement("span", { className: "text-sm", style: { color: 'var(--text-secondary)' } }, "FPS"),
                 React.createElement("input", {
                   type: "number",
                   min: 1,
                   max: 60,
                   value: fps,
                   onChange: e => setFps(Number(e.target.value)),
-                  className: "w-16 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm text-center"
+                  className: "w-16 text-center"
                 })
               ),
               React.createElement("button", {
                 onClick: exportGif,
                 disabled: frames.length < 2 || isExporting,
-                className: "px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-600 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors"
-              }, isExporting ? "导出中..." : "导出 GIF"),
+                className: "btn btn-secondary"
+              }, "🎬 GIF"),
               React.createElement("button", {
                 onClick: exportPngSequence,
                 disabled: frames.length < 1 || isExporting,
-                className: "px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:bg-slate-600 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors"
-              }, "导出 PNG 序列")
+                className: "btn btn-secondary"
+              }, "📦 PNG序列"),
+              React.createElement("div", { className: "flex items-center gap-2" },
+                React.createElement("span", { className: "text-sm", style: { color: 'var(--text-secondary)' } }, "列"),
+                React.createElement("input", {
+                  type: "number",
+                  min: 1,
+                  max: frames.length || 10,
+                  value: spriteCols,
+                  onChange: e => setSpriteCols(Number(e.target.value)),
+                  className: "w-16 text-center"
+                })
+              ),
+              React.createElement("button", {
+                onClick: exportSpriteSheet,
+                disabled: frames.length < 1 || isExporting,
+                className: "btn btn-primary"
+              }, "🖼 雪碧图"),
+              React.createElement("button", {
+                onClick: exportJson,
+                disabled: frames.length < 1 || isExporting,
+                className: "btn btn-secondary"
+              }, "📋 JSON"),
+              React.createElement("button", {
+                onClick: exportSpriteSheetWithJson,
+                disabled: frames.length < 1 || isExporting,
+                className: "btn btn-secondary"
+              }, "📦 全部导出")
             ),
-            isExporting && React.createElement("div", { className: "mt-3" },
-              React.createElement("div", { className: "w-full bg-slate-700 rounded-full h-2" },
+            isExporting && React.createElement("div", { className: "mt-4" },
+              React.createElement("div", { className: "progress-bar" },
                 React.createElement("div", {
-                  className: "bg-indigo-500 h-2 rounded-full transition-all",
+                  className: "progress-fill",
                   style: { width: exportProgress + '%' }
                 })
               ),
-              React.createElement("p", { className: "text-xs text-slate-400 mt-1 text-center" }, exportProgress + '%')
+              React.createElement("p", { className: "text-xs text-center mt-2", style: { color: 'var(--text-muted)' } }, exportProgress + '%')
             )
           ),
 
-          React.createElement("div", { className: "mb-4" },
-            React.createElement("h3", { className: "text-sm font-medium text-slate-300 mb-2" }, "帧列表"),
-            React.createElement("div", { className: "frame-list p-3 bg-slate-800/50 rounded-xl min-h-24" },
-              frames.length === 0 && React.createElement("p", { className: "text-slate-500 text-sm text-center py-4" }, "暂无帧，请点击\"添加帧\"开始"),
+          // Frame List
+          React.createElement("div", { className: "card mb-4" },
+            React.createElement("p", { className: "section-title" }, "帧列表"),
+            React.createElement("div", { className: "frame-list min-h-20 p-3 rounded-lg", style: { background: 'var(--bg-dark)' } },
+              frames.length === 0 && React.createElement("p", { className: "text-sm w-full text-center py-6", style: { color: 'var(--text-muted)' } }, "暂无帧，请点击「添加帧」开始"),
               frames.map((frame, index) => 
                 React.createElement("div", {
                   key: frame.id,
@@ -441,7 +831,7 @@
                   onDragOver: e => handleFrameDragOver(e, index),
                   onDragEnd: handleDragEnd,
                   onClick: () => { stopAnimation(); setCurrentFrameIndex(index); },
-                  className: `frame-item relative cursor-pointer rounded-lg overflow-hidden border-2 ${currentFrameIndex === index ? 'selected border-indigo-500' : 'border-transparent'}`,
+                  className: `frame-item relative cursor-pointer rounded-lg overflow-hidden border-2 ${currentFrameIndex === index ? 'selected' : 'border-transparent'}`,
                   style: { width: 72, height: 72 }
                 },
                   React.createElement("img", {
@@ -450,43 +840,51 @@
                     style: { imageRendering: 'pixelated' }
                   }),
                   React.createElement("div", {
-                    className: "absolute bottom-0 left-0 right-0 bg-black/60 text-xs text-center py-0.5",
-                    style: { fontSize: 10 }
+                    className: "absolute bottom-0 left-0 right-0 text-center py-0.5 text-xs font-bold",
+                    style                  : 'rgba(0,0,0,0.7)', backgroundColor: 'rgba(0,0,0,0.7)' }
                   }, index + 1),
                   React.createElement("button", {
                     onClick: e => { e.stopPropagation(); deleteFrame(index); },
-                    className: "absolute top-0.5 right-0.5 w-4 h-4 bg-red-500 rounded-full text-xs flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity",
-                    style: { fontSize: 10 }
+                    className: "absolute top-0.5 right-0.5 w-5 h-5 rounded-full text-xs flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity",
+                    style: { background: 'var(--accent-secondary)', fontSize: 14, lineHeight: 1 }
                   }, "×")
                 )
               )
             )
           ),
 
+          // Main Content - 3 Column Layout
           React.createElement("div", { className: "grid grid-cols-1 lg:grid-cols-3 gap-6" },
-            React.createElement("div", { className: "lg:col-span-1 space-y-4" },
+            // Left Column - Upload & Palette
+            React.createElement("div", { className: "space-y-4" },
+              // Drop Zone
               React.createElement("div", {
-                className: "drop-zone border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors " + (isDragging ? "drag-over border-indigo-400" : "border-slate-600 hover:border-slate-500"),
+                className: "drop-zone border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all " + (isDragging ? "drag-over" : "drop-zone-idle"),
                 onDrop: handleDrop, onDragOver: handleDragOver, onDragLeave: handleDragLeave,
                 onClick: handleFileInputClick
               },
                 React.createElement("input", { ref: fileInputRef, id: "fileInput", type: "file", accept: ".png,.jpg,.jpeg,.webp,.gif", className: "hidden", onChange: handleInputChange }),
-                React.createElement("p", { className: "text-slate-400" }, "拖拽图片到此处添加帧", React.createElement("br"), "或点击选择", React.createElement("span", { className: "text-xs mt-2 block text-slate-500" }, "支持 PNG / JPG / WebP / GIF"))
+                React.createElement("div", { style: { color: 'var(--accent)' }, className: "text-4xl mb-3" }, "📤"),
+                React.createElement("p", { style: { color: 'var(--text-secondary)' } }, "拖拽图片到此处"),
+                React.createElement("p", { className: "text-xs mt-2", style: { color: 'var(--text-muted)' } }, "支持 PNG / JPG / WebP / GIF")
               ),
-              frames.length > 0 && currentFrame && React.createElement("div", { className: "bg-slate-800/50 rounded-xl p-4 space-y-4" },
-                React.createElement("h3", { className: "text-sm font-medium text-slate-300" }, "调色板"),
-                React.createElement("div", { className: "flex gap-1 flex-wrap" },
-                  paletteColors.map((c,i) => React.createElement("div", { key: i, className: "w-5 h-5 rounded-sm", style: {background:"rgb("+c[0]+","+c[1]+","+c[2]+")"} }))
+
+              // Palette Settings
+              frames.length > 0 && currentFrame && React.createElement("div", { className: "card" },
+                React.createElement("p", { className: "section-title" }, "调色板"),
+                React.createElement("div", { className: "flex gap-1 flex-wrap mb-3" },
+                  paletteColors.map((c,i) => React.createElement("div", { key: i, className: "w-6 h-6 rounded-sm", style: {background:"rgb("+c[0]+","+c[1]+","+c[2]+")", border: '1px solid var(--border)'} }))
                 ),
-                React.createElement("select", { className: "w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm", value: paletteMode, onChange: e=>setPaletteMode(e.target.value) },
-                  React.createElement("option", { value: "auto" }, "自动提取"),
+                React.createElement("select", { className: "w-full mb-3", value: paletteMode, onChange: e=>setPaletteMode(e.target.value) },
+                  React.createElement("option", { value: "auto" }, "🎨 自动提取"),
                   Object.keys(PALETTES).map(k=>React.createElement("option", { key: k, value: k }, k))
                 ),
-                paletteMode !== "auto" && React.createElement("div", { className: "flex gap-1 flex-wrap" },
-                  PALETTES[paletteMode].map((c,i)=>React.createElement("div", { key: i, className: "w-5 h-5 rounded-sm cursor-pointer hover:scale-110 transition-transform", style: {background:c} }))
+                paletteMode !== "auto" && React.createElement("div", { className: "flex gap-1 flex-wrap mb-3" },
+                  PALETTES[paletteMode].map((c,i)=>React.createElement("div", { key: i, className: "w-6 h-6 rounded-sm cursor-pointer hover:scale-110 transition-transform", style: {background:c, border: '1px solid var(--border)'} }))
                 ),
-                React.createElement("div", null,
-                  React.createElement("label", { className: "text-sm text-slate-300 mb-1 block" }, "帧时长 (ms)"),
+                React.createElement("div", { className: "mb-3" },
+                  <label className="text-sm mb-1 block" style={{color: 'var(--text-secondary)'}}>帧时长 (ms)</label>
+                  ,
                   React.createElement("input", {
                     type: "number",
                     min: 50,
@@ -494,56 +892,128 @@
                     step: 50,
                     value: currentFrame?.duration || 100,
                     onChange: e => updateFrameDuration(currentFrameIndex, Number(e.target.value)),
-                    className: "w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm"
+                    className: "w-full"
                   })
                 ),
                 React.createElement("div", null,
-                  React.createElement("label", { className: "text-sm text-slate-300 mb-1 block" }, "帧命名规则"),
+                  React.createElement("label", { className: "text-sm mb-1 block", style: { color: 'var(--text-secondary)' } }, "帧命名规则"),
                   React.createElement("input", {
                     type: "text",
                     value: frameNaming,
                     onChange: e => setFrameNaming(e.target.value),
                     placeholder: "frame_{n}",
-                    className: "w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm"
+                    className: "w-full"
                   }),
-                  React.createElement("p", { className: "text-xs text-slate-500 mt-1" }, "可用: {n}=序号, {name}=原文件名")
+                  React.createElement("p", { className: "text-xs mt-1", style: { color: 'var(--text-muted)' } }, "可用: {n}=序号, {name}=原文件名")
                 )
               )
             ),
-            React.createElement("div", { className: "lg:col-span-2 space-y-4" },
+
+            // Middle Column - Preview
+            React.createElement("div", { className: "space-y-4" },
               React.createElement("div", { className: "grid grid-cols-2 gap-4" },
-                React.createElement("div", { className: "bg-slate-800/50 rounded-xl p-4" },
-                  React.createElement("p", { className: "text-xs text-slate-400 mb-2" }, "原图"),
-                  React.createElement("div", { className: "flex items-center justify-center bg-slate-900 rounded-lg overflow-hidden", style: {minHeight:200} },
+                React.createElement("div", { className: "card" },
+                  React.createElement("p", { className: "text-xs font-bold mb-2", style: { color: 'var(--text-muted)' } }, "原图"),
+                  React.createElement("div", { className: "canvas-container", style: {minHeight:200} },
                     currentFrame?.imgEl && React.createElement("canvas", { ref: origCanvasRef, className: "max-w-full max-h-64 object-contain" })
                   )
                 ),
-                React.createElement("div", { className: "bg-slate-800/50 rounded-xl p-4" },
-                  React.createElement("p", { className: "text-xs text-slate-400 mb-2" }, "像素化预览"),
-                  React.createElement("div", { className: "flex items-center justify-center bg-slate-900 rounded-lg overflow-hidden", style: {minHeight:200} },
+                React.createElement("div", { className: "card" },
+                  React.createElement("p", { className: "text-xs font-bold mb-2", style: { color: 'var(--text-muted)' } }, "像素化预览"),
+                  React.createElement("div", { className: "canvas-container", style: {minHeight:200} },
                     React.createElement("canvas", { ref: pixelCanvasRef, className: "max-w-full max-h-64", style: {imageRendering:"pixelated"} })
                   )
                 )
               ),
-              currentFrame && React.createElement("div", { className: "bg-slate-800/50 rounded-xl p-4 space-y-4" },
+              currentFrame && React.createElement("div", { className: "card" },
                 React.createElement("div", { className: "grid grid-cols-1 sm:grid-cols-2 gap-6" },
                   React.createElement("div", null,
-                    React.createElement("label", { className: "text-sm text-slate-300 mb-2 block" }, "分辨率 ", React.createElement("span", { className: "text-indigo-400 font-mono" }, res+"×"+res)),
+                    React.createElement("label", { className: "text-sm mb-2 block", style: { color: 'var(--text-secondary)' } }, 
+                      "分辨率 ", React.createElement("span", { className: "badge" }, res+"×"+res)
+                    ),
                     React.createElement("input", { type: "range", min: 8, max: 256, step: 8, value: res, onChange: e=>setRes(Number(e.target.value)), className: "w-full" }),
-                    React.createElement("div", { className: "flex justify-between text-xs text-slate-500 mt-1" }, React.createElement("span", null, "8px"), React.createElement("span", null, "256px"))
+                    React.createElement("div", { className: "flex justify-between text-xs mt-1", style: { color: 'var(--text-muted)' } }, React.createElement("span", null, "8px"), React.createElement("span", null, "256px"))
                   ),
                   React.createElement("div", null,
-                    React.createElement("label", { className: "text-sm text-slate-300 mb-2 block" }, "颜色数量 ", React.createElement("span", { className: "text-indigo-400 font-mono" }, colors)),
+                    React.createElement("label", { className: "text-sm mb-2 block", style: { color: 'var(--text-secondary)' } }, 
+                      "颜色数量 ", React.createElement("span", { className: "badge" }, colors)
+                    ),
                     React.createElement("input", { type: "range", min: 2, max: paletteMode==="GameBoy"?4:paletteMode==="灰度"?16:256, value: colors, onChange: e=>setColors(Number(e.target.value)), className: "w-full" }),
-                    React.createElement("div", { className: "flex justify-between text-xs text-slate-500 mt-1" }, React.createElement("span", null, "2"), React.createElement("span", null, "256"))
+                    React.createElement("div", { className: "flex justify-between text-xs mt-1", style: { color: 'var(--text-muted)' } }, React.createElement("span", null, "2"), React.createElement("span", null, "256"))
                   )
                 )
               ),
-              React.createElement("div", { className: "text-xs text-slate-500 text-center mt-4" },
-                "帧数: ", frames.length, " | 当前: 第", currentFrameIndex + 1, "帧", isPlaying && React.createElement("span", { className: "ml-2 text-emerald-400" }, "● 播放中")
+              React.createElement("div", { className: "text-xs text-center py-2", style: { color: 'var(--text-muted)' } },
+                "帧数: ", frames.length, " | 当前: 第", currentFrameIndex + 1, "帧", 
+                isPlaying && React.createElement("span", { className: "ml-2", style: { color: 'var(--accent)' } }, "● 播放中")
+              )
+            ),
+
+            // Right Column - Export Options
+            React.createElement("div", { className: "space-y-4" },
+              React.createElement("div", { className: "card" },
+                React.createElement("p", { className: "section-title" }, "导出选项"),
+                React.createElement("div", { className: "space-y-3" },
+                  React.createElement("div", { className: "flex items-center justify-between" },
+                    React.createElement("span", { className: "text-sm", style: { color: 'var(--text-secondary)' } }, "雪碧图列数"),
+                    React.createElement("input", {
+                      type: "number",
+                      min: 1,
+                      max: frames.length || 10,
+                      value: spriteCols,
+                      onChange: e => setSpriteCols(Number(e.target.value)),
+                      className: "w-20 text-center"
+                    })
+                  ),
+                  React.createElement("div", { className: "flex items-center justify-between" },
+                    React.createElement("span", { className: "text-sm", style: { color: 'var(--text-secondary)' } }, "帧命名规则"),
+                    React.createElement("input", {
+                      type: "text",
+                      value: frameNaming,
+                      onChange: e => setFrameNaming(e.target.value),
+                      className: "w-32 text-sm text-right"
+                    })
+                  )
+                )
+              ),
+              React.createElement("div", { className: "card" },
+                React.createElement("p", { className: "section-title" }, "快捷导出"),
+                React.createElement("div", { className: "space-y-2" },
+                  React.createElement("button", {
+                    onClick: exportGif,
+                    disabled: frames.length < 2 || isExporting,
+                    className: "btn btn-secondary w-full justify-center"
+                  }, "🎬 导出 GIF 动画"),
+                  React.createElement("button", {
+                    onClick: exportPngSequence,
+                    disabled: frames.length < 1 || isExporting,
+                    className: "btn btn-secondary w-full justify-center"
+                  }, "📦 导出 PNG 序列"),
+                  React.createElement("button", {
+                    onClick: exportSpriteSheet,
+                    disabled: frames.length < 1 || isExporting,
+                    className: "btn btn-primary w-full justify-center"
+                  }, "🖼 导出雪碧图"),
+                  React.createElement("button", {
+                    onClick: exportJson,
+                    disabled: frames.length < 1 || isExporting,
+                    className: "btn btn-secondary w-full justify-center"
+                  }, "📋 导出 JSON 图谱"),
+                  React.createElement("button", {
+                    onClick: exportSpriteSheetWithJson,
+                    disabled: frames.length < 1 || isExporting,
+                    className: "btn btn-secondary w-full justify-center"
+                  }, "📦 雪碧图 + JSON")
+                )
+              ),
+              React.createElement("div", { className: "card", style: { background: 'var(--bg-dark)', border: '1px solid var(--border)' } },
+                React.createElement("p", { className: "text-xs", style: { color: 'var(--text-muted)' } },
+                  "💡 提示: 雪碧图导出支持配置行列数，JSON图谱兼容主流游戏引擎格式"
+                )
               )
             )
           )
+        )
         )
       );
     }
