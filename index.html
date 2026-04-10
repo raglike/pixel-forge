@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>像素动画工具</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0f1117; color: #e2e8f0; font-family: Inter, system-ui, sans-serif; }
+    input[type="range"] { -webkit-appearance: none; background: #1e293b; border-radius: 4px; height: 6px; cursor: pointer; }
+    input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: #6366f1; cursor: pointer; }
+    .drop-zone.drag-over { border-color: #6366f1 !important; background: rgba(99,102,241,0.1); }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #1e293b; }
+    ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useRef, useCallback, useEffect } = React;
+
+    function medianCut(imgData, maxColors) {
+      const pixels = [];
+      for (let i = 0; i < imgData.data.length; i += 4) {
+        pixels.push([imgData.data[i], imgData.data[i+1], imgData.data[i+2]]);
+      }
+      function getColorRange(pixels) {
+        let minR=255,maxR=0,minG=255,maxG=0,minB=255,maxB=0;
+        for (const p of pixels) {
+          minR=Math.min(minR,p[0]); maxR=Math.max(maxR,p[0]);
+          minG=Math.min(minG,p[1]); maxG=Math.max(maxG,p[1]);
+          minB=Math.min(minB,p[2]); maxB=Math.max(maxB,p[2]);
+        }
+        const r=maxR-minR, g=maxG-minG, b=maxB-minB;
+        if (r>=g && r>=b) return 0;
+        if (g>=r && g>=b) return 1;
+        return 2;
+      }
+      function split(pixels) {
+        const channel = getColorRange(pixels);
+        pixels.sort((a,b) => a[channel]-b[channel]);
+        const mid = Math.floor(pixels.length/2);
+        return [pixels.slice(0,mid), pixels.slice(mid)];
+      }
+      function avgColor(pixels) {
+        if (pixels.length===0) return [0,0,0];
+        const s=pixels.reduce((a,p)=>[a[0]+p[0],a[1]+p[1],a[2]+p[2]],[0,0,0]);
+        return [Math.round(s[0]/pixels.length),Math.round(s[1]/pixels.length),Math.round(s[2]/pixels.length)];
+      }
+      let buckets = [pixels];
+      while (buckets.length < maxColors) {
+        buckets.sort((a,b)=>b.length-a.length);
+        const b = buckets.shift();
+        if (b.length < 2) { buckets.push(b); break; }
+        const [a1,a2] = split(b);
+        buckets.push(a1,a2);
+      }
+      return buckets.map(avgColor);
+    }
+
+    const PALETTES = {
+      "PICO-8": ["#000000","#1D2B53","#7E2553","#008751","#AB5236","#5F574F","#C2C3C7","#FFF1E8","#FF004D","#FFA300","#FFEC27","#00E436","#29ADFF","#83769C","#FF77A8","#FFCCAA"],
+      "NES": ["#000000","#fcfcfc","#f8f8f8","#bcbcbc","#7c7c7c","#a4e4fc","#3cbcfc","#0078f8","#0000fc","#b8b8f8","#6888fc","#0058f8","#0000bc","#d8b8f8","#9878f8","#6844fc","#4428bc","#f8b8f8","#f878f8","#d800cc","#940084","#f8a4c0","#f85898","#e40058","#a80020","#f0d0b0","#f87858","#f83800","#a81000","#fce0a8","#fca044","#e45c10","#881400","#f8d878","#f8b800","#ac7c00","#503000","#d8f878","#b8f818","#00b800","#007800","#b8f8b8","#58d854","#00a800","#006800","#b8f8d8","#58f898","#00a844","#005800","#00fcfc","#00e8d8","#008888","#004058","#f8d8f8","#787878"],
+      "GameBoy": ["#0f380f","#306230","#8bac0f","#9bbc0f"],
+      "灰度": Array.from({length:16},(_,i)=>{const v=Math.round(i*17);return"#"+v.toString(16).padStart(2,"0").repeat(3);})
+    };
+
+    function App() {
+      const [img, setImg] = useState(null);
+      const [res, setRes] = useState(64);
+      const [colors, setColors] = useState(16);
+      const [paletteMode, setPaletteMode] = useState("auto");
+      const [palette, setPalette] = useState([]);
+      const [paletteColors, setPaletteColors] = useState([]);
+      const [isDragging, setIsDragging] = useState(false);
+      const origCanvasRef = useRef(null);
+      const pixelCanvasRef = useRef(null);
+
+      useEffect(() => {
+        if (!img) return;
+        processImage();
+      }, [img, res, colors, palette, paletteMode]);
+
+      const processImage = useCallback(() => {
+        const imgEl = img;
+        const oc = origCanvasRef.current;
+        const pc = pixelCanvasRef.current;
+        if (!oc || !pc) return;
+
+        const maxW = 512, maxH = 512;
+        let w = imgEl.width, h = imgEl.height;
+        const scale = Math.min(maxW/w, maxH/h, 1);
+        w = Math.round(w*scale); h = Math.round(h*scale);
+
+        oc.width = w; oc.height = h;
+        const octx = oc.getContext("2d");
+        octx.drawImage(imgEl, 0, 0, w, h);
+
+        const sampleData = octx.getImageData(0, 0, w, h);
+        const autoPalette = medianCut(sampleData.data, colors);
+        const currentPalette = paletteMode === "auto" ? autoPalette : palette;
+        setPaletteColors(currentPalette);
+
+        const pw = res, ph = res;
+        pc.width = pw; pc.height = ph;
+        const pctx = pc.getContext("2d");
+        pctx.imageSmoothingEnabled = false;
+        pctx.drawImage(oc, 0, 0, pw, ph);
+
+        const pixelData = pctx.getImageData(0, 0, pw, ph);
+        const data = pixelData.data;
+        for (let i = 0; i < data.length; i += 4) {
+          const [r,g,b] = [data[i],data[i+1],data[i+2]];
+          let best = currentPalette[0]||[0,0,0], bestDist = Infinity;
+          for (const c of currentPalette) {
+            const d = (r-c[0])**2+(g-c[1])**2+(b-c[2])**2;
+            if (d < bestDist) { bestDist=d; best=c; }
+          }
+          data[i]=best[0]; data[i+1]=best[1]; data[i+2]=best[2];
+        }
+        pctx.putImageData(pixelData, 0, 0);
+      }, [img, res, colors, palette, paletteMode]);
+
+      const handleFile = (file) => {
+        if (!file) return;
+        const url = URL.createObjectURL(file);
+        const imgEl = new Image();
+        imgEl.onload = () => { setImg(imgEl); };
+        imgEl.src = url;
+      };
+
+      const handleDrop = (e) => {
+        e.preventDefault();
+        setIsDragging(false);
+        const file = e.dataTransfer.files[0];
+        if (file && /\.(png|jpe?g|webp)$/i.test(file.name)) handleFile(file);
+      };
+
+      const handleDragOver = (e) => { e.preventDefault(); setIsDragging(true); };
+      const handleDragLeave = () => setIsDragging(false);
+      const handleInputChange = (e) => handleFile(e.target.files[0]);
+
+      return React.createElement("div", { className: "min-h-screen p-6" },
+        React.createElement("div", { className: "max-w-6xl mx-auto" },
+          React.createElement("h1", { className: "text-2xl font-bold mb-6 text-center" }, "像素动画工具"),
+          React.createElement("div", { className: "grid grid-cols-1 lg:grid-cols-3 gap-6" },
+            React.createElement("div", { className: "lg:col-span-1 space-y-4" },
+              React.createElement("div", {
+                className: "drop-zone border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors " + (isDragging ? "drag-over border-indigo-400" : "border-slate-600 hover:border-slate-500"),
+                onDrop: handleDrop, onDragOver: handleDragOver, onDragLeave: handleDragLeave,
+                onClick: ()=>document.getElementById("fileInput").click()
+              },
+                React.createElement("input", { id: "fileInput", type: "file", accept: ".png,.jpg,.jpeg,.webp", className: "hidden", onChange: handleInputChange }),
+                img ? React.createElement("p", { className: "text-emerald-400" }, "点击或拖拽更换图片") :
+                  React.createElement("p", { className: "text-slate-400" }, "拖拽图片到此处", React.createElement("br"), "或点击选择", React.createElement("span", { className: "text-xs mt-2 block text-slate-500" }, "支持 PNG / JPG / WebP"))
+              ),
+              img && React.createElement("div", { className: "bg-slate-800/50 rounded-xl p-4 space-y-4" },
+                React.createElement("h3", { className: "text-sm font-medium text-slate-300" }, "调色板"),
+                React.createElement("div", { className: "flex gap-1 flex-wrap" },
+                  paletteColors.map((c,i) => React.createElement("div", { key: i, className: "w-5 h-5 rounded-sm", style: {background:"rgb("+c[0]+","+c[1]+","+c[2]+")"} }))
+                ),
+                React.createElement("select", { className: "w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm", value: paletteMode, onChange: e=>setPaletteMode(e.target.value) },
+                  React.createElement("option", { value: "auto" }, "自动提取"),
+                  Object.keys(PALETTES).map(k=>React.createElement("option", { key: k, value: k }, k))
+                ),
+                paletteMode !== "auto" && React.createElement("div", { className: "flex gap-1 flex-wrap" },
+                  PALETTES[paletteMode].map((c,i)=>React.createElement("div", { key: i, className: "w-5 h-5 rounded-sm cursor-pointer hover:scale-110 transition-transform", style: {background:c} }))
+                )
+              )
+            ),
+            React.createElement("div", { className: "lg:col-span-2 space-y-4" },
+              React.createElement("div", { className: "grid grid-cols-2 gap-4" },
+                React.createElement("div", { className: "bg-slate-800/50 rounded-xl p-4" },
+                  React.createElement("p", { className: "text-xs text-slate-400 mb-2" }, "原图"),
+                  React.createElement("div", { className: "flex items-center justify-center bg-slate-900 rounded-lg overflow-hidden", style: {minHeight:200} },
+                    img && React.createElement("canvas", { ref: origCanvasRef, className: "max-w-full max-h-64 object-contain" })
+                  )
+                ),
+                React.createElement("div", { className: "bg-slate-800/50 rounded-xl p-4" },
+                  React.createElement("p", { className: "text-xs text-slate-400 mb-2" }, "像素化"),
+                  React.createElement("div", { className: "flex items-center justify-center bg-slate-900 rounded-lg overflow-hidden", style: {minHeight:200} },
+                    img && React.createElement("canvas", { ref: pixelCanvasRef, className: "max-w-full max-h-64", style: {imageRendering:"pixelated"} })
+                  )
+                )
+              ),
+              img && React.createElement("div", { className: "bg-slate-800/50 rounded-xl p-4 space-y-4" },
+                React.createElement("div", { className: "grid grid-cols-1 sm:grid-cols-2 gap-6" },
+                  React.createElement("div", null,
+                    React.createElement("label", { className: "text-sm text-slate-300 mb-2 block" }, "分辨率 ", React.createElement("span", { className: "text-indigo-400 font-mono" }, res+"×"+res)),
+                    React.createElement("input", { type: "range", min: 8, max: 256, step: 8, value: res, onChange: e=>setRes(Number(e.target.value)), className: "w-full" }),
+                    React.createElement("div", { className: "flex justify-between text-xs text-slate-500 mt-1" }, React.createElement("span", null, "8px"), React.createElement("span", null, "256px"))
+                  ),
+                  React.createElement("div", null,
+                    React.createElement("label", { className: "text-sm text-slate-300 mb-2 block" }, "颜色数量 ", React.createElement("span", { className: "text-indigo-400 font-mono" }, colors)),
+                    React.createElement("input", { type: "range", min: 2, max: paletteMode==="GameBoy"?4:paletteMode==="灰度"?16:256, value: colors, onChange: e=>setColors(Number(e.target.value)), className: "w-full" }),
+                    React.createElement("div", { className: "flex justify-between text-xs text-slate-500 mt-1" }, React.createElement("span", null, "2"), React.createElement("span", null, "256"))
+                  )
+                )
+              )
+            )
+          )
+        )
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+  </script>
+</body>
+</html>
