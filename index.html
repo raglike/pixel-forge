@@ -3,11 +3,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>像素动画工具</title>
+  <title>像素动画工具 - PixelForge</title>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #0f1117; color: #e2e8f0; font-family: Inter, system-ui, sans-serif; }
@@ -17,6 +20,10 @@
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: #1e293b; }
     ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+    .frame-item { transition: all 0.2s; }
+    .frame-item.selected { box-shadow: 0 0 0 3px #6366f1; }
+    .frame-item:hover { transform: scale(1.05); }
+    .frame-list { display: flex; gap: 8px; flex-wrap: wrap; }
   </style>
 </head>
 <body>
@@ -71,23 +78,40 @@
     };
 
     function App() {
-      const [img, setImg] = useState(null);
+      const [frames, setFrames] = useState([]);
+      const [currentFrameIndex, setCurrentFrameIndex] = useState(0);
       const [res, setRes] = useState(64);
       const [colors, setColors] = useState(16);
       const [paletteMode, setPaletteMode] = useState("auto");
       const [palette, setPalette] = useState([]);
       const [paletteColors, setPaletteColors] = useState([]);
       const [isDragging, setIsDragging] = useState(false);
+      const [fps, setFps] = useState(12);
+      const [isPlaying, setIsPlaying] = useState(false);
+      const [isExporting, setIsExporting] = useState(false);
+      const [exportProgress, setExportProgress] = useState(0);
+      const [frameNaming, setFrameNaming] = useState("frame_{n}");
+      const [draggedIndex, setDraggedIndex] = useState(null);
       const origCanvasRef = useRef(null);
       const pixelCanvasRef = useRef(null);
+      const playTimeoutRef = useRef(null);
+      const fileInputRef = useRef(null);
+
+      const currentFrame = frames[currentFrameIndex];
 
       useEffect(() => {
-        if (!img) return;
         processImage();
-      }, [img, res, colors, palette, paletteMode]);
+      }, [currentFrame, res, colors, palette, paletteMode]);
+
+      useEffect(() => {
+        return () => {
+          if (playTimeoutRef.current) clearTimeout(playTimeoutRef.current);
+        };
+      }, []);
 
       const processImage = useCallback(() => {
-        const imgEl = img;
+        if (!currentFrame) return;
+        const imgEl = currentFrame.imgEl;
         const oc = origCanvasRef.current;
         const pc = pixelCanvasRef.current;
         if (!oc || !pc) return;
@@ -124,13 +148,60 @@
           data[i]=best[0]; data[i+1]=best[1]; data[i+2]=best[2];
         }
         pctx.putImageData(pixelData, 0, 0);
-      }, [img, res, colors, palette, paletteMode]);
+      }, [currentFrame, res, colors, palette, paletteMode]);
+
+      const processFrameToCanvas = (frame, canvas) => {
+        const imgEl = frame.imgEl;
+        const maxW = 512, maxH = 512;
+        let w = imgEl.width, h = imgEl.height;
+        const scale = Math.min(maxW/w, maxH/h, 1);
+        w = Math.round(w*scale); h = Math.round(h*scale);
+
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = w;
+        tempCanvas.height = h;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.drawImage(imgEl, 0, 0, w, h);
+
+        const sampleData = tempCtx.getImageData(0, 0, w, h);
+        const autoPalette = medianCut(sampleData.data, colors);
+        const currentPalette = paletteMode === "auto" ? autoPalette : palette;
+
+        const pw = res, ph = res;
+        canvas.width = pw;
+        canvas.height = ph;
+        const pctx = canvas.getContext('2d');
+        pctx.imageSmoothingEnabled = false;
+        pctx.drawImage(tempCanvas, 0, 0, pw, ph);
+
+        const pixelData = pctx.getImageData(0, 0, pw, ph);
+        const data = pixelData.data;
+        for (let i = 0; i < data.length; i += 4) {
+          const [r,g,b] = [data[i],data[i+1],data[i+2]];
+          let best = currentPalette[0]||[0,0,0], bestDist = Infinity;
+          for (const c of currentPalette) {
+            const d = (r-c[0])**2+(g-c[1])**2+(b-c[2])**2;
+            if (d < bestDist) { bestDist=d; best=c; }
+          }
+          data[i]=best[0]; data[i+1]=best[1]; data[i+2]=best[2];
+        }
+        pctx.putImageData(pixelData, 0, 0);
+      };
 
       const handleFile = (file) => {
         if (!file) return;
         const url = URL.createObjectURL(file);
         const imgEl = new Image();
-        imgEl.onload = () => { setImg(imgEl); };
+        imgEl.onload = () => {
+          const newFrame = {
+            id: Date.now(),
+            imgEl: imgEl,
+            name: file.name,
+            duration: Math.round(1000 / fps)
+          };
+          setFrames(prev => [...prev, newFrame]);
+          setCurrentFrameIndex(prev => prev);
+        };
         imgEl.src = url;
       };
 
@@ -138,28 +209,271 @@
         e.preventDefault();
         setIsDragging(false);
         const file = e.dataTransfer.files[0];
-        if (file && /\.(png|jpe?g|webp)$/i.test(file.name)) handleFile(file);
+        if (file && /\.(png|jpe?g|webp|gif)$/i.test(file.name)) handleFile(file);
       };
 
       const handleDragOver = (e) => { e.preventDefault(); setIsDragging(true); };
       const handleDragLeave = () => setIsDragging(false);
       const handleInputChange = (e) => handleFile(e.target.files[0]);
 
-      return React.createElement("div", { className: "min-h-screen p-6" },
-        React.createElement("div", { className: "max-w-6xl mx-auto" },
-          React.createElement("h1", { className: "text-2xl font-bold mb-6 text-center" }, "像素动画工具"),
+      const handleFileInputClick = () => {
+        fileInputRef.current?.click();
+      };
+
+      const addFrameFromImage = () => {
+        fileInputRef.current?.click();
+      };
+
+      const deleteFrame = (index) => {
+        if (frames.length <= 1) return;
+        const newFrames = frames.filter((_, i) => i !== index);
+        setFrames(newFrames);
+        if (currentFrameIndex >= newFrames.length) {
+          setCurrentFrameIndex(newFrames.length - 1);
+        }
+      };
+
+      const updateFrameDuration = (index, duration) => {
+        const newFrames = [...frames];
+        newFrames[index] = { ...newFrames[index], duration };
+        setFrames(newFrames);
+      };
+
+      const handleDragStart = (e, index) => {
+        setDraggedIndex(index);
+        e.dataTransfer.effectAllowed = 'move';
+      };
+
+      const handleFrameDragOver = (e, index) => {
+        e.preventDefault();
+        if (draggedIndex === null || draggedIndex === index) return;
+        
+        const newFrames = [...frames];
+        const draggedFrame = newFrames[draggedIndex];
+        newFrames.splice(draggedIndex, 1);
+        newFrames.splice(index, 0, draggedFrame);
+        setFrames(newFrames);
+        setDraggedIndex(index);
+        setCurrentFrameIndex(index);
+      };
+
+      const handleDragEnd = () => {
+        setDraggedIndex(null);
+      };
+
+      const playAnimation = useCallback(() => {
+        if (frames.length < 2) return;
+        setIsPlaying(true);
+        let frameIdx = 0;
+        
+        const playFrame = () => {
+          const pc = pixelCanvasRef.current;
+          if (!pc || !frames[frameIdx]) return;
+          
+          processFrameToCanvas(frames[frameIdx], pc);
+          
+          const delay = frames[frameIdx]?.duration || Math.round(1000 / fps);
+          playTimeoutRef.current = setTimeout(playFrame, delay);
+          frameIdx = (frameIdx + 1) % frames.length;
+        };
+        
+        playFrame();
+      }, [frames, fps, colors, paletteMode, palette, res]);
+
+      const stopAnimation = useCallback(() => {
+        if (playTimeoutRef.current) {
+          clearTimeout(playTimeoutRef.current);
+          playTimeoutRef.current = null;
+        }
+        setIsPlaying(false);
+        processImage();
+      }, [processImage]);
+
+      const togglePlay = () => {
+        if (isPlaying) {
+          stopAnimation();
+        } else {
+          playAnimation();
+        }
+      };
+
+      const exportGif = () => {
+        if (frames.length === 0) return;
+        setIsExporting(true);
+        setExportProgress(0);
+
+        const gif = new GIF({
+          workers: 2,
+          quality: 10,
+          width: res,
+          height: res,
+          workerScript: 'https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js'
+        });
+
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = res;
+        tempCanvas.height = res;
+        const tempCtx = tempCanvas.getContext('2d');
+
+        frames.forEach((frame, index) => {
+          processFrameToCanvas(frame, tempCanvas);
+          gif.addFrame(tempCtx, { copy: true, delay: frame.duration });
+          setExportProgress(Math.round((index + 1) / frames.length * 50));
+        });
+
+        gif.on('progress', (p) => {
+          setExportProgress(50 + Math.round(p * 50));
+        });
+
+        gif.on('finished', (blob) => {
+          saveAs(blob, 'animation.gif');
+          setIsExporting(false);
+          setExportProgress(0);
+        });
+
+        gif.render();
+      };
+
+      const exportPngSequence = async () => {
+        if (frames.length === 0) return;
+        setIsExporting(true);
+        setExportProgress(0);
+
+        const zip = new JSZip();
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = res;
+        tempCanvas.height = res;
+
+        for (let i = 0; i < frames.length; i++) {
+          processFrameToCanvas(frames[i], tempCanvas);
+          
+          const dataUrl = tempCanvas.toDataURL('image/png');
+          const base64 = dataUrl.split(',')[1];
+          
+          let filename = frameNaming
+            .replace('{n}', String(i + 1).padStart(3, '0'))
+            .replace('{name}', frames[i].name.replace(/\.[^.]+$/, ''));
+          if (!filename.endsWith('.png')) filename += '.png';
+          
+          zip.file(filename, base64, { base64: true });
+          setExportProgress(Math.round((i + 1) / frames.length * 90));
+        }
+
+        const content = await zip.generateAsync({ type: 'blob' });
+        saveAs(content, 'frames.zip');
+        setIsExporting(false);
+        setExportProgress(0);
+      };
+
+      const getFrameThumbnail = (frame) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 48;
+        canvas.height = 48;
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = false;
+        
+        if (frame.imgEl) {
+          const scale = Math.min(48 / frame.imgEl.width, 48 / frame.imgEl.height);
+          const w = frame.imgEl.width * scale;
+          const h = frame.imgEl.height * scale;
+          ctx.drawImage(frame.imgEl, (48 - w) / 2, (48 - h) / 2, w, h);
+        }
+        return canvas.toDataURL();
+      };
+
+      return React.createElement("div", { className: "min-h-screen p-4 md:p-6" },
+        React.createElement("div", { className: "max-w-7xl mx-auto" },
+          React.createElement("h1", { className: "text-2xl font-bold mb-6 text-center" }, "像素动画工具 - PixelForge"),
+          
+          React.createElement("div", { className: "mb-4 p-3 bg-slate-800/50 rounded-xl" },
+            React.createElement("div", { className: "flex flex-wrap gap-2 items-center justify-center" },
+              React.createElement("button", {
+                onClick: addFrameFromImage,
+                className: "px-4 py-2 bg-indigo-600 hover:bg-indigo-700 rounded-lg text-sm font-medium transition-colors"
+              }, "添加帧"),
+              React.createElement("button", {
+                onClick: togglePlay,
+                disabled: frames.length < 2,
+                className: "px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-600 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+              }, isPlaying ? React.createElement("span", null, "⏸ 暂停") : React.createElement("span", null, "▶ 播放")),
+              React.createElement("div", { className: "flex items-center gap-2" },
+                React.createElement("span", { className: "text-sm text-slate-400" }, "FPS:"),
+                React.createElement("input", {
+                  type: "number",
+                  min: 1,
+                  max: 60,
+                  value: fps,
+                  onChange: e => setFps(Number(e.target.value)),
+                  className: "w-16 bg-slate-700 border border-slate-600 rounded px-2 py-1 text-sm text-center"
+                })
+              ),
+              React.createElement("button", {
+                onClick: exportGif,
+                disabled: frames.length < 2 || isExporting,
+                className: "px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-slate-600 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors"
+              }, isExporting ? "导出中..." : "导出 GIF"),
+              React.createElement("button", {
+                onClick: exportPngSequence,
+                disabled: frames.length < 1 || isExporting,
+                className: "px-4 py-2 bg-cyan-600 hover:bg-cyan-700 disabled:bg-slate-600 disabled:cursor-not-allowed rounded-lg text-sm font-medium transition-colors"
+              }, "导出 PNG 序列")
+            ),
+            isExporting && React.createElement("div", { className: "mt-3" },
+              React.createElement("div", { className: "w-full bg-slate-700 rounded-full h-2" },
+                React.createElement("div", {
+                  className: "bg-indigo-500 h-2 rounded-full transition-all",
+                  style: { width: exportProgress + '%' }
+                })
+              ),
+              React.createElement("p", { className: "text-xs text-slate-400 mt-1 text-center" }, exportProgress + '%')
+            )
+          ),
+
+          React.createElement("div", { className: "mb-4" },
+            React.createElement("h3", { className: "text-sm font-medium text-slate-300 mb-2" }, "帧列表"),
+            React.createElement("div", { className: "frame-list p-3 bg-slate-800/50 rounded-xl min-h-24" },
+              frames.length === 0 && React.createElement("p", { className: "text-slate-500 text-sm text-center py-4" }, "暂无帧，请点击\"添加帧\"开始"),
+              frames.map((frame, index) => 
+                React.createElement("div", {
+                  key: frame.id,
+                  draggable: true,
+                  onDragStart: e => handleDragStart(e, index),
+                  onDragOver: e => handleFrameDragOver(e, index),
+                  onDragEnd: handleDragEnd,
+                  onClick: () => { stopAnimation(); setCurrentFrameIndex(index); },
+                  className: `frame-item relative cursor-pointer rounded-lg overflow-hidden border-2 ${currentFrameIndex === index ? 'selected border-indigo-500' : 'border-transparent'}`,
+                  style: { width: 72, height: 72 }
+                },
+                  React.createElement("img", {
+                    src: getFrameThumbnail(frame),
+                    className: "w-full h-full object-cover",
+                    style: { imageRendering: 'pixelated' }
+                  }),
+                  React.createElement("div", {
+                    className: "absolute bottom-0 left-0 right-0 bg-black/60 text-xs text-center py-0.5",
+                    style: { fontSize: 10 }
+                  }, index + 1),
+                  React.createElement("button", {
+                    onClick: e => { e.stopPropagation(); deleteFrame(index); },
+                    className: "absolute top-0.5 right-0.5 w-4 h-4 bg-red-500 rounded-full text-xs flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity",
+                    style: { fontSize: 10 }
+                  }, "×")
+                )
+              )
+            )
+          ),
+
           React.createElement("div", { className: "grid grid-cols-1 lg:grid-cols-3 gap-6" },
             React.createElement("div", { className: "lg:col-span-1 space-y-4" },
               React.createElement("div", {
-                className: "drop-zone border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-colors " + (isDragging ? "drag-over border-indigo-400" : "border-slate-600 hover:border-slate-500"),
+                className: "drop-zone border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors " + (isDragging ? "drag-over border-indigo-400" : "border-slate-600 hover:border-slate-500"),
                 onDrop: handleDrop, onDragOver: handleDragOver, onDragLeave: handleDragLeave,
-                onClick: ()=>document.getElementById("fileInput").click()
+                onClick: handleFileInputClick
               },
-                React.createElement("input", { id: "fileInput", type: "file", accept: ".png,.jpg,.jpeg,.webp", className: "hidden", onChange: handleInputChange }),
-                img ? React.createElement("p", { className: "text-emerald-400" }, "点击或拖拽更换图片") :
-                  React.createElement("p", { className: "text-slate-400" }, "拖拽图片到此处", React.createElement("br"), "或点击选择", React.createElement("span", { className: "text-xs mt-2 block text-slate-500" }, "支持 PNG / JPG / WebP"))
+                React.createElement("input", { ref: fileInputRef, id: "fileInput", type: "file", accept: ".png,.jpg,.jpeg,.webp,.gif", className: "hidden", onChange: handleInputChange }),
+                React.createElement("p", { className: "text-slate-400" }, "拖拽图片到此处添加帧", React.createElement("br"), "或点击选择", React.createElement("span", { className: "text-xs mt-2 block text-slate-500" }, "支持 PNG / JPG / WebP / GIF"))
               ),
-              img && React.createElement("div", { className: "bg-slate-800/50 rounded-xl p-4 space-y-4" },
+              frames.length > 0 && currentFrame && React.createElement("div", { className: "bg-slate-800/50 rounded-xl p-4 space-y-4" },
                 React.createElement("h3", { className: "text-sm font-medium text-slate-300" }, "调色板"),
                 React.createElement("div", { className: "flex gap-1 flex-wrap" },
                   paletteColors.map((c,i) => React.createElement("div", { key: i, className: "w-5 h-5 rounded-sm", style: {background:"rgb("+c[0]+","+c[1]+","+c[2]+")"} }))
@@ -170,6 +484,29 @@
                 ),
                 paletteMode !== "auto" && React.createElement("div", { className: "flex gap-1 flex-wrap" },
                   PALETTES[paletteMode].map((c,i)=>React.createElement("div", { key: i, className: "w-5 h-5 rounded-sm cursor-pointer hover:scale-110 transition-transform", style: {background:c} }))
+                ),
+                React.createElement("div", null,
+                  React.createElement("label", { className: "text-sm text-slate-300 mb-1 block" }, "帧时长 (ms)"),
+                  React.createElement("input", {
+                    type: "number",
+                    min: 50,
+                    max: 5000,
+                    step: 50,
+                    value: currentFrame?.duration || 100,
+                    onChange: e => updateFrameDuration(currentFrameIndex, Number(e.target.value)),
+                    className: "w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm"
+                  })
+                ),
+                React.createElement("div", null,
+                  React.createElement("label", { className: "text-sm text-slate-300 mb-1 block" }, "帧命名规则"),
+                  React.createElement("input", {
+                    type: "text",
+                    value: frameNaming,
+                    onChange: e => setFrameNaming(e.target.value),
+                    placeholder: "frame_{n}",
+                    className: "w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2 text-sm"
+                  }),
+                  React.createElement("p", { className: "text-xs text-slate-500 mt-1" }, "可用: {n}=序号, {name}=原文件名")
                 )
               )
             ),
@@ -178,17 +515,17 @@
                 React.createElement("div", { className: "bg-slate-800/50 rounded-xl p-4" },
                   React.createElement("p", { className: "text-xs text-slate-400 mb-2" }, "原图"),
                   React.createElement("div", { className: "flex items-center justify-center bg-slate-900 rounded-lg overflow-hidden", style: {minHeight:200} },
-                    img && React.createElement("canvas", { ref: origCanvasRef, className: "max-w-full max-h-64 object-contain" })
+                    currentFrame?.imgEl && React.createElement("canvas", { ref: origCanvasRef, className: "max-w-full max-h-64 object-contain" })
                   )
                 ),
                 React.createElement("div", { className: "bg-slate-800/50 rounded-xl p-4" },
-                  React.createElement("p", { className: "text-xs text-slate-400 mb-2" }, "像素化"),
+                  React.createElement("p", { className: "text-xs text-slate-400 mb-2" }, "像素化预览"),
                   React.createElement("div", { className: "flex items-center justify-center bg-slate-900 rounded-lg overflow-hidden", style: {minHeight:200} },
-                    img && React.createElement("canvas", { ref: pixelCanvasRef, className: "max-w-full max-h-64", style: {imageRendering:"pixelated"} })
+                    React.createElement("canvas", { ref: pixelCanvasRef, className: "max-w-full max-h-64", style: {imageRendering:"pixelated"} })
                   )
                 )
               ),
-              img && React.createElement("div", { className: "bg-slate-800/50 rounded-xl p-4 space-y-4" },
+              currentFrame && React.createElement("div", { className: "bg-slate-800/50 rounded-xl p-4 space-y-4" },
                 React.createElement("div", { className: "grid grid-cols-1 sm:grid-cols-2 gap-6" },
                   React.createElement("div", null,
                     React.createElement("label", { className: "text-sm text-slate-300 mb-2 block" }, "分辨率 ", React.createElement("span", { className: "text-indigo-400 font-mono" }, res+"×"+res)),
@@ -201,6 +538,9 @@
                     React.createElement("div", { className: "flex justify-between text-xs text-slate-500 mt-1" }, React.createElement("span", null, "2"), React.createElement("span", null, "256"))
                   )
                 )
+              ),
+              React.createElement("div", { className: "text-xs text-slate-500 text-center mt-4" },
+                "帧数: ", frames.length, " | 当前: 第", currentFrameIndex + 1, "帧", isPlaying && React.createElement("span", { className: "ml-2 text-emerald-400" }, "● 播放中")
               )
             )
           )
