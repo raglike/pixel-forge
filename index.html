@@ -4,6 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PixelForge - 像素动画工具</title>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -344,6 +352,7 @@
         animationPresets: false,
         asepriteExport: false,
         gifImport: false,
+        threePreview: false,
       },
       pro: {
         maxResolution: 256,
@@ -353,6 +362,7 @@
         animationPresets: true,
         asepriteExport: true,
         gifImport: true,
+        threePreview: true,
       },
       enterprise: {
         maxResolution: Infinity,
@@ -362,6 +372,7 @@
         animationPresets: true,
         asepriteExport: true,
         gifImport: true,
+        threePreview: true,
       }
     };
 
@@ -432,6 +443,16 @@
       // Version
       const [version, setVersion] = useState(() => localStorage.getItem('pixelforge_version') || DEFAULT_VERSION);
       const versionConf = VERSION_CONFIG[version] || VERSION_CONFIG.pro;
+
+      // 3D Preview state
+      const [threeInitialized, setThreeInitialized] = useState(false);
+      const threeRefs = useRef({ scene: null, camera: null, renderer: null, sprite: null, controls: null, animationId: null });
+      const threeCanvasRef = useRef(null);
+      const [threeView, setThreeView] = useState('front');
+      const [threeBgColor, setThreeBgColor] = useState('#1a1a2e');
+      const [threeAmbient, setThreeAmbient] = useState(0.5);
+      const [threeDirectional, setThreeDirectional] = useState(1.0);
+      const [threeScale, setThreeScale] = useState(1.0);
 
       // Core state
       const [frames, setFrames] = useState([]);
@@ -546,6 +567,197 @@
       useEffect(() => {
         return () => {
           if (playTimeoutRef.current) clearTimeout(playTimeoutRef.current);
+        };
+      }, []);
+
+      // ========== THREE.JS 3D PREVIEW ==========
+      let THREE_GLOBAL = null;
+      let OrbitControls_GLOBAL = null;
+      const initThreePreview = useCallback(() => {
+        const canvas = threeCanvasRef.current;
+        if (!canvas || frames.length === 0) return;
+        
+        // Destroy previous instance
+        const prev = threeRefs.current;
+        if (prev.animationId) cancelAnimationFrame(prev.animationId);
+        if (prev.renderer) prev.renderer.dispose();
+        
+        import('three').then((THREE) => {
+          THREE_GLOBAL = THREE;
+          import('three/addons/controls/OrbitControls.js').then((OC) => {
+            OrbitControls_GLOBAL = OC;
+            // Scene
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(threeBgColor);
+            
+            // Camera
+            const camera = new THREE.PerspectiveCamera(60, canvas.clientWidth / canvas.clientHeight, 0.1, 100);
+            camera.position.set(0, 0, 5);
+            
+            // Renderer
+            const renderer = new THREE.WebGLRenderer({ canvas, antialias: false });
+            renderer.setPixelRatio(1);
+            renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
+            
+            // Texture from current frame
+            const exportFrameAsCanvas = (frameIdx) => {
+              const frame = frames[frameIdx];
+              if (!frame) return null;
+              const imgEl = frame.imgEl;
+              const tempCanvas = document.createElement('canvas');
+              const maxW = 256, maxH = 256;
+              let w = imgEl.width, h = imgEl.height;
+              const scale = Math.min(maxW/w, maxH/h, 1);
+              w = Math.round(w*scale); h = Math.round(h*scale);
+              tempCanvas.width = w; tempCanvas.height = h;
+              const ctx = tempCanvas.getContext('2d');
+              ctx.imageSmoothingEnabled = false;
+              ctx.drawImage(imgEl, 0, 0, w, h);
+              // Apply pixelation
+              const pixelCanvas = document.createElement('canvas');
+              const pw = res, ph = res;
+              pixelCanvas.width = pw; pixelCanvas.height = ph;
+              const pctx = pixelCanvas.getContext('2d');
+              pctx.imageSmoothingEnabled = false;
+              pctx.drawImage(tempCanvas, 0, 0, pw, ph);
+              return pixelCanvas;
+            };
+            
+            const frameCanvas = exportFrameAsCanvas(currentFrameIndex);
+            if (!frameCanvas) return;
+            
+            const texture = new THREE.CanvasTexture(frameCanvas);
+            texture.magFilter = THREE.NearestFilter;
+            texture.minFilter = THREE.NearestFilter;
+            const material = new THREE.SpriteMaterial({ map: texture });
+            const sprite = new THREE.Sprite(material);
+            sprite.scale.set(threeScale, threeScale, 1);
+            scene.add(sprite);
+            
+            // Lights
+            const ambient = new THREE.AmbientLight(0xffffff, threeAmbient);
+            scene.add(ambient);
+            const directional = new THREE.DirectionalLight(0xffffff, threeDirectional);
+            directional.position.set(1, 1, 1);
+            scene.add(directional);
+            
+            // OrbitControls
+            const controls = new OC.OrbitControls(camera, canvas);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.enableZoom = true;
+            controls.minDistance = 1;
+            controls.maxDistance = 20;
+            
+            // Store refs
+            threeRefs.current = { scene, camera, renderer, sprite, controls, texture, material, ambient, directional, animationId: null };
+            
+            // Resize handler
+            const handleResize = () => {
+              if (!canvas || !renderer || !camera) return;
+              const w = canvas.clientWidth;
+              const h = canvas.clientHeight;
+              camera.aspect = w / h;
+              camera.updateProjectionMatrix();
+              renderer.setSize(w, h, false);
+            };
+            window.addEventListener('resize', handleResize);
+            
+            // Animation loop
+            const animate = () => {
+              const id = requestAnimationFrame(animate);
+              controls.update();
+              renderer.render(scene, camera);
+              threeRefs.current.animationId = id;
+            };
+            animate();
+            
+            setThreeInitialized(true);
+          });
+        });
+      }, [frames, currentFrameIndex, res, threeBgColor, threeAmbient, threeDirectional, threeScale]);
+
+      // Auto-init when switching to 3D tab
+      useEffect(() => {
+        if (activeTab === '3dpreview' && versionConf.threePreview) {
+          setTimeout(() => initThreePreview(), 100);
+        }
+      }, [activeTab, versionConf.threePreview]);
+
+      // Update sprite when frame changes
+      useEffect(() => {
+        if (activeTab !== '3dpreview' || !threeInitialized) return;
+        const refs = threeRefs.current;
+        if (!refs || !frames[currentFrameIndex]) return;
+        
+        const exportFrameAsCanvas = (frameIdx) => {
+          const frame = frames[frameIdx];
+          if (!frame) return null;
+          const imgEl = frame.imgEl;
+          const tempCanvas = document.createElement('canvas');
+          const maxW = 256, maxH = 256;
+          let w = imgEl.width, h = imgEl.height;
+          const scale = Math.min(maxW/w, maxH/h, 1);
+          w = Math.round(w*scale); h = Math.round(h*scale);
+          tempCanvas.width = w; tempCanvas.height = h;
+          const ctx = tempCanvas.getContext('2d');
+          ctx.imageSmoothingEnabled = false;
+          ctx.drawImage(imgEl, 0, 0, w, h);
+          const pixelCanvas = document.createElement('canvas');
+          const pw = res, ph = res;
+          pixelCanvas.width = pw; pixelCanvas.height = ph;
+          const pctx = pixelCanvas.getContext('2d');
+          pctx.imageSmoothingEnabled = false;
+          pctx.drawImage(tempCanvas, 0, 0, pw, ph);
+          return pixelCanvas;
+        };
+        
+        const frameCanvas = exportFrameAsCanvas(currentFrameIndex);
+        if (!frameCanvas) return;
+        
+        const THREE = window.__THREE__;
+        if (!THREE) return;
+        
+        if (refs.texture) refs.texture.dispose();
+        const newTexture = new THREE_GLOBAL.CanvasTexture(frameCanvas);
+        newTexture.magFilter = THREE_GLOBAL.NearestFilter;
+        newTexture.minFilter = THREE_GLOBAL.NearestFilter;
+        refs.sprite.material.map = newTexture;
+        refs.sprite.material.needsUpdate = true;
+        refs.texture = newTexture;
+      }, [currentFrameIndex, activeTab, threeInitialized, frames, res]);
+
+      // Update background color
+      useEffect(() => {
+        if (!threeInitialized || !threeRefs.current.scene || !THREE_GLOBAL) return;
+        threeRefs.current.scene.background = new THREE_GLOBAL.Color(threeBgColor);
+      }, [threeBgColor, threeInitialized]);
+
+      // Update ambient light
+      useEffect(() => {
+        if (!threeInitialized || !threeRefs.current.ambient) return;
+        threeRefs.current.ambient.intensity = threeAmbient;
+      }, [threeAmbient, threeInitialized]);
+
+      // Update directional light
+      useEffect(() => {
+        if (!threeInitialized || !threeRefs.current.directional) return;
+        threeRefs.current.directional.intensity = threeDirectional;
+      }, [threeDirectional, threeInitialized]);
+
+      // Update sprite scale
+      useEffect(() => {
+        if (!threeInitialized || !threeRefs.current.sprite) return;
+        threeRefs.current.sprite.scale.set(threeScale, threeScale, 1);
+      }, [threeScale, threeInitialized]);
+
+      // Cleanup on unmount
+      useEffect(() => {
+        return () => {
+          const refs = threeRefs.current;
+          if (refs.animationId) cancelAnimationFrame(refs.animationId);
+          if (refs.renderer) refs.renderer.dispose();
+          if (refs.texture) refs.texture.dispose();
         };
       }, []);
 
@@ -1585,9 +1797,26 @@
               }, versionLabel)
             ),
             React.createElement("p", { className: "text-sm", style: { color: 'var(--text-muted)' } }, 
-              versionConf.onionSkin ? "Phase 2 Pro | 洋葱皮 · 调色板 · 动画预设 · GIF导入 · Aseprite导出" : "像素动画工具 Phase 2"
+              versionConf.threePreview ? "Phase 3 | 3D预览版 🚀" : versionConf.onionSkin ? "Phase 2 Pro | 洋葱皮 · 调色板 · 动画预设 · GIF导入 · Aseprite导出" : "像素动画工具 Phase 1"
             )
           ),
+          
+          // Tab Bar
+          versionConf.threePreview && React.createElement("div", { className: "flex gap-2 mb-4" },
+            React.createElement("button", {
+              onClick: () => setActiveTab('main'),
+              className: `tab-btn ${activeTab === 'main' ? 'active' : ''}`,
+              style: { padding: '8px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 'bold', transition: 'all 0.2s' },
+            }, "🎨 主界面"),
+            React.createElement("button", {
+              onClick: () => { setActiveTab('3dpreview'); setTimeout(() => initThreePreview(), 50); },
+              className: `tab-btn ${activeTab === '3dpreview' ? 'active' : ''}`,
+              style: { padding: '8px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 'bold', transition: 'all 0.2s' },
+            }, "🌐 3D预览")
+          ),
+          
+          // Main content (show only when not in 3D preview tab)
+          activeTab !== '3dpreview' && React.createElement(React.Fragment, null,
           
           // Toolbar
           React.createElement("div", { className: "card mb-4" },
@@ -1921,6 +2150,73 @@
                 )
               )
             )
+          ))),
+
+          // ========== 3D PREVIEW PANEL ==========
+          activeTab === '3dpreview' && versionConf.threePreview && React.createElement("div", { className: "grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4" },
+            // Left: 3D Canvas
+            React.createElement("div", { className: "card lg:col-span-2" },
+              React.createElement("p", { className: "section-title mb-3" }, "🌐 3D 场景预览"),
+              React.createElement("div", { style: { position: 'relative', height: '400px', background: threeBgColor, borderRadius: '8px', overflow: 'hidden' } },
+                React.createElement("canvas", { id: "three-canvas", ref: threeCanvasRef, style: { width: '100%', height: '100%', cursor: 'grab', display: 'block' } }),
+                // View buttons overlay
+                React.createElement("div", { style: { position: 'absolute', bottom: 12, left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '8px' } },
+                  ['front', 'side', 'back', 'top', 'free'].map(v =>
+                    React.createElement("button", {
+                      key: v,
+                      onClick: () => setThreeView(v),
+                      style: {
+                        padding: '6px 12px',
+                        borderRadius: '6px',
+                        border: 'none',
+                        cursor: 'pointer',
+                        fontWeight: 'bold',
+                        fontSize: '12px',
+                        background: threeView === v ? 'var(--accent)' : 'rgba(0,0,0,0.6)',
+                        color: threeView === v ? '#000' : '#fff',
+                      }
+                    }, { front:'正面', side:'侧面', back:'背面', top:'顶视', free:'自由' }[v])
+                  )
+                )
+              ),
+              !threeInitialized && frames.length > 0 && React.createElement("p", { className: "text-xs text-center mt-2", style: { color: 'var(--text-muted)' } }, "点击「自由」拖拽旋转，滚轮缩放")
+            ),
+            // Right: Controls
+            React.createElement("div", { className: "card space-y-4" },
+              React.createElement("p", { className: "section-title" }, "⚙️ 控制面板"),
+              // Background
+              React.createElement("div", null,
+                React.createElement("label", { className: "text-sm block mb-2", style: { color: 'var(--text-secondary)' } }, "背景颜色"),
+                React.createElement("input", { type: "color", value: threeBgColor, onChange: e => setThreeBgColor(e.target.value), style: { width: '100%', height: '36px', border: 'none', cursor: 'pointer' } })
+              ),
+              // Ambient Light
+              React.createElement("div", null,
+                React.createElement("label", { className: "text-sm block mb-1", style: { color: 'var(--text-secondary)' } }, `环境光: ${Math.round(threeAmbient * 100)}%`),
+                React.createElement("input", { type: "range", min: "0", max: "1", step: "0.05", value: threeAmbient, onChange: e => setThreeAmbient(Number(e.target.value)), style: { width: '100%' } })
+              ),
+              // Directional Light
+              React.createElement("div", null,
+                React.createElement("label", { className: "text-sm block mb-1", style: { color: 'var(--text-secondary)' } }, `平行光: ${Math.round(threeDirectional * 100)}%`),
+                React.createElement("input", { type: "range", min: "0", max: "2", step: "0.05", value: threeDirectional, onChange: e => setThreeDirectional(Number(e.target.value)), style: { width: '100%' } })
+              ),
+              // Sprite Scale
+              React.createElement("div", null,
+                React.createElement("label", { className: "text-sm block mb-1", style: { color: 'var(--text-secondary)' } }, `精灵缩放: ${threeScale.toFixed(1)}x`),
+                React.createElement("input", { type: "range", min: "0.5", max: "5", step: "0.1", value: threeScale, onChange: e => setThreeScale(Number(e.target.value)), style: { width: '100%' } })
+              ),
+              // Frame selector for 3D preview
+              frames.length > 0 && React.createElement("div", null,
+                React.createElement("label", { className: "text-sm block mb-2", style: { color: 'var(--text-secondary)' } }, "预览帧"),
+                React.createElement("select", {
+                  value: currentFrameIndex,
+                  onChange: e => { stopAnimation(); setCurrentFrameIndex(Number(e.target.value)); },
+                  style: { width: '100%', padding: '6px', background: 'var(--bg-dark)', color: 'var(--text-primary)', border: '1px solid var(--border)', borderRadius: '6px' }
+                }, frames.map((f, i) => React.createElement("option", { key: f.id, value: i }, `帧 ${i + 1}`)))
+              ),
+              React.createElement("div", { className: "pt-2", style: { borderTop: '1px solid var(--border)' } },
+                React.createElement("p", { className: "text-xs", style: { color: 'var(--text-muted)' } }, "💡 当前帧将显示为3D精灵")
+              )
+            )
           ),
 
           // ========== MODALS ==========
@@ -1951,7 +2247,7 @@
                     React.createElement("span", { className: "badge badge-pro" }, "Pro")
                   ),
                   React.createElement("p", { className: "text-xs text-gray-400" }, 
-                    `分辨率 ${VERSION_CONFIG.pro.maxResolution}px | 最大 ${VERSION_CONFIG.pro.maxFrames} 帧 | 全部功能`
+                    `分辨率 ${VERSION_CONFIG.pro.maxResolution}px | 最大 ${VERSION_CONFIG.pro.maxFrames} 帧 | 全部功能含3D预览`
                   )
                 ),
                 React.createElement("div", {
