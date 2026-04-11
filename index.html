@@ -615,26 +615,19 @@
           const row = Math.floor(i / cols);
           return {
             index: i,
-            filename: frame.name,
-            duration: frame.duration,
-            frame: {
-              x: col * res,
-              y: row * res,
-              w: res,
-              h: res
-            }
+            x: col * res,
+            y: row * res,
+            width: res,
+            height: res,
+            delay: frame.duration
           };
         });
 
         const jsonData = {
-          name: "PixelForge Export",
-          version: "1.0",
-          frameCount: frames.length,
-          frameSize: { w: res, h: res },
-          spriteSize: { w: res * cols, h: res * rows },
-          columns: cols,
-          rows: rows,
-          frames: framesData
+          frames: framesData,
+          frameWidth: res,
+          frameHeight: res,
+          frameCount: frames.length
         };
 
         const blob = new Blob([JSON.stringify(jsonData, null, 2)], { type: 'application/json' });
@@ -676,14 +669,11 @@
 
           framesData.push({
             index: i,
-            filename: frames[i].name,
-            duration: frames[i].duration,
-            frame: {
-              x: col * res,
-              y: row * res,
-              w: res,
-              h: res
-            }
+            x: col * res,
+            y: row * res,
+            width: res,
+            height: res,
+            delay: frames[i].duration
           });
 
           setExportProgress(Math.round((i + 1) / frames.length * 70));
@@ -700,14 +690,10 @@
 
         // Export JSON
         const jsonData = {
-          name: "PixelForge Export",
-          version: "1.0",
-          frameCount: frames.length,
-          frameSize: { w: res, h: res },
-          spriteSize: { w: res * cols, h: res * rows },
-          columns: cols,
-          rows: rows,
-          frames: framesData
+          frames: framesData,
+          frameWidth: res,
+          frameHeight: res,
+          frameCount: frames.length
         };
 
         const jsonBlob = new Blob([JSON.stringify(jsonData, null, 2)], { type: 'application/json' });
@@ -841,7 +827,7 @@
                   }),
                   React.createElement("div", {
                     className: "absolute bottom-0 left-0 right-0 text-center py-0.5 text-xs font-bold",
-                    style                  : 'rgba(0,0,0,0.7)', backgroundColor: 'rgba(0,0,0,0.7)' }
+                    style: { backgroundColor: 'rgba(0,0,0,0.7)' }
                   }, index + 1),
                   React.createElement("button", {
                     onClick: e => { e.stopPropagation(); deleteFrame(index); },
