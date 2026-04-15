@@ -557,6 +557,12 @@
       const [splitUniform, setSplitUniform] = useState(true);
       const splitPreviewRef = useRef(null);
 
+      // F45: Background Scene Layer
+      const [backgroundImage, setBackgroundImage] = useState(null); // Image() object or null
+      const [bgFit, setBgFit] = useState('cover'); // 'cover' | 'contain' | 'original'
+      const [bgOpacity, setBgOpacity] = useState(100); // 0-100
+      const bgFileInputRef = useRef(null);
+
       // UI State
       const [activeTab, setActiveTab] = useState('main');
       const [showVersionModal, setShowVersionModal] = useState(false);
@@ -604,7 +610,7 @@
 
       useEffect(() => {
         processImage();
-      }, [currentFrame, res, colors, palette, paletteMode]);
+      }, [currentFrame, res, colors, palette, paletteMode, backgroundImage, bgFit, bgOpacity]);
 
       // F35: Draw split preview with grid overlay
       useEffect(() => {
@@ -845,6 +851,42 @@
         };
       }, []);
 
+      // F45: Draw background layer helper
+      const drawBackground = useCallback((ctx, canvasWidth, canvasHeight) => {
+        if (!backgroundImage || !backgroundImage.complete || backgroundImage.naturalWidth === 0) return;
+        const img = backgroundImage;
+        ctx.save();
+        ctx.globalAlpha = bgOpacity / 100;
+
+        if (bgFit === 'cover') {
+          // Stretch to fill canvas
+          ctx.drawImage(img, 0, 0, canvasWidth, canvasHeight);
+        } else if (bgFit === 'contain') {
+          // Fit inside canvas preserving aspect ratio, centered
+          const imgRatio = img.naturalWidth / img.naturalHeight;
+          const canvasRatio = canvasWidth / canvasHeight;
+          let drawW, drawH, drawX, drawY;
+          if (imgRatio > canvasRatio) {
+            drawW = canvasWidth;
+            drawH = canvasWidth / imgRatio;
+            drawX = 0;
+            drawY = (canvasHeight - drawH) / 2;
+          } else {
+            drawH = canvasHeight;
+            drawW = canvasHeight * imgRatio;
+            drawX = (canvasWidth - drawW) / 2;
+            drawY = 0;
+          }
+          ctx.drawImage(img, drawX, drawY, drawW, drawH);
+        } else {
+          // 'original' - original size centered
+          const drawX = (canvasWidth - img.naturalWidth) / 2;
+          const drawY = (canvasHeight - img.naturalHeight) / 2;
+          ctx.drawImage(img, drawX, drawY);
+        }
+        ctx.restore();
+      }, [backgroundImage, bgFit, bgOpacity]);
+
       const processImage = useCallback(() => {
         if (!currentFrame) return;
         const imgEl = currentFrame.imgEl;
@@ -887,7 +929,10 @@
           data[i]=best[0]; data[i+1]=best[1]; data[i+2]=best[2];
         }
         pctx.putImageData(pixelData, 0, 0);
-      }, [currentFrame, res, colors, palette, paletteMode]);
+
+        // F45: Draw background layer (below sprite)
+        drawBackground(pctx, pw, ph);
+      }, [currentFrame, res, colors, palette, paletteMode, drawBackground]);
 
       // F33: AI Smart Palette Recommendation
       const analyzeWithAi = useCallback(() => {
@@ -1231,13 +1276,16 @@
         if (frames.length < 2) return;
         setIsPlaying(true);
         let frameIdx = 0;
-        
+
         const playFrame = () => {
           const pc = pixelCanvasRef.current;
           if (!pc || !frames[frameIdx]) return;
-          
+
           processFrameToCanvas(frames[frameIdx], pc);
-          
+
+          // F45: Draw background layer (below sprite)
+          drawBackground(pc.getContext('2d'), res, res);
+
           // Draw onion skin on preview
           if (onionSkin) {
             const ctx = pc.getContext('2d');
@@ -1245,14 +1293,14 @@
             drawOnionSkin(ctx, pc);
             ctx.putImageData(savedData, 0, 0);
           }
-          
+
           const delay = frames[frameIdx]?.duration || Math.round(1000 / fps);
           playTimeoutRef.current = setTimeout(playFrame, delay);
           frameIdx = (frameIdx + 1) % frames.length;
         };
-        
+
         playFrame();
-      }, [frames, fps, colors, paletteMode, palette, res, onionSkin, drawOnionSkin]);
+      }, [frames, fps, colors, paletteMode, palette, res, onionSkin, drawOnionSkin, drawBackground]);
 
       const stopAnimation = useCallback(() => {
         if (playTimeoutRef.current) {
@@ -1270,6 +1318,23 @@
         } else {
           playAnimation();
         }
+      };
+
+      // F45: Background image upload handler
+      const handleBackgroundUpload = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          const img = new Image();
+          img.onload = () => {
+            setBackgroundImage(img);
+          };
+          img.src = evt.target.result;
+        };
+        reader.readAsDataURL(file);
+        // Reset input so same file can be selected again
+        e.target.value = '';
       };
 
       const exportGif = () => {
@@ -1292,6 +1357,8 @@
 
         frames.forEach((frame, index) => {
           processFrameToCanvas(frame, tempCanvas);
+          // F45: Draw background layer (below sprite)
+          drawBackground(tempCtx, res, res);
           gif.addFrame(tempCtx, { copy: true, delay: frame.duration });
           setExportProgress(Math.round((index + 1) / frames.length * 50));
         });
@@ -1318,10 +1385,13 @@
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = res;
         tempCanvas.height = res;
+        const tempCtx = tempCanvas.getContext('2d');
 
         for (let i = 0; i < frames.length; i++) {
           processFrameToCanvas(frames[i], tempCanvas);
-          
+          // F45: Draw background layer (below sprite)
+          drawBackground(tempCtx, res, res);
+
           const dataUrl = tempCanvas.toDataURL('image/png');
           const base64 = dataUrl.split(',')[1];
           
@@ -1360,6 +1430,8 @@
           frameCanvas.width = res;
           frameCanvas.height = res;
           processFrameToCanvas(frames[i], frameCanvas);
+          // F45: Draw background layer (below sprite)
+          drawBackground(frameCanvas.getContext('2d'), res, res);
           tempCtx.imageSmoothingEnabled = false;
           tempCtx.drawImage(frameCanvas, col * res, row * res);
           setExportProgress(Math.round((i + 1) / frames.length * 80));
@@ -1434,11 +1506,13 @@
         for (let i = 0; i < frames.length; i++) {
           const col = i % cols;
           const row = Math.floor(i / cols);
-          
+
           const frameCanvas = document.createElement('canvas');
           frameCanvas.width = res;
           frameCanvas.height = res;
           processFrameToCanvas(frames[i], frameCanvas);
+          // F45: Draw background layer (below sprite)
+          drawBackground(frameCanvas.getContext('2d'), res, res);
           tempCtx.imageSmoothingEnabled = false;
           tempCtx.drawImage(frameCanvas, col * res, row * res);
 
@@ -2131,6 +2205,49 @@
                 onClick: () => setShowPresetPanel(true),
                 className: "btn btn-secondary"
               }, "📋 动画预设"),
+              // F45: Background upload button (Enterprise only)
+              versionConf.aiFeatures && React.createElement(React.Fragment, null,
+                React.createElement("input", {
+                  key: 'bg-file-input',
+                  ref: bgFileInputRef,
+                  type: "file",
+                  accept: "image/*",
+                  style: { display: 'none' },
+                  onChange: handleBackgroundUpload
+                }),
+                !backgroundImage ? (
+                  React.createElement("button", {
+                    onClick: () => bgFileInputRef.current?.click(),
+                    className: "btn btn-secondary",
+                    title: "添加背景图"
+                  }, "🖼 背景")
+                ) : (
+                  React.createElement("div", {
+                    className: "flex items-center gap-1",
+                    style: { position: 'relative' }
+                  },
+                    React.createElement("span", {
+                      style: {
+                        display: 'inline-block',
+                        width: 24,
+                        height: 24,
+                        borderRadius: 4,
+                        overflow: 'hidden',
+                        border: '1px solid var(--border-light)',
+                        backgroundImage: `url(${backgroundImage.src})`,
+                        backgroundSize: 'cover',
+                        backgroundPosition: 'center'
+                      }
+                    }),
+                    React.createElement("button", {
+                      onClick: () => setBackgroundImage(null),
+                      className: "btn btn-secondary",
+                      style: { padding: '4px 8px', fontSize: 12 },
+                      title: "清除背景"
+                    }, "✕")
+                  )
+                )
+              ),
               React.createElement("button", {
                 onClick: exportGif,
                 disabled: frames.length < 2 || isExporting,
@@ -2419,6 +2536,42 @@
                     React.createElement("input", { type: "range", min: 2, max: paletteMode==="GameBoy"?4:paletteMode==="灰度"?16:256, value: colors, onChange: e=>setColors(Number(e.target.value)), className: "w-full" }),
                     React.createElement("div", { className: "flex justify-between text-xs mt-1", style: { color: 'var(--text-muted)' } }, React.createElement("span", null, "2"), React.createElement("span", null, "256"))
                   )
+                )
+              ),
+              // F45: Background settings panel (Enterprise only)
+              versionConf.aiFeatures && backgroundImage && React.createElement("div", { className: "card" },
+                React.createElement("p", { className: "text-xs font-bold mb-2", style: { color: 'var(--text-muted)' } }, "🖼 背景设置"),
+                React.createElement("div", { className: "space-y-2" },
+                  React.createElement("div", null,
+                    React.createElement("label", { className: "text-xs mb-1 block", style: { color: 'var(--text-secondary)' } },
+                      "透明度 ", React.createElement("span", { className: "badge" }, bgOpacity + "%")
+                    ),
+                    React.createElement("input", {
+                      type: "range",
+                      min: 0,
+                      max: 100,
+                      value: bgOpacity,
+                      onChange: e => setBgOpacity(Number(e.target.value)),
+                      className: "w-full"
+                    })
+                  ),
+                  React.createElement("div", { className: "flex items-center gap-2" },
+                    React.createElement("span", { className: "text-xs", style: { color: 'var(--text-secondary)' } }, "填充"),
+                    React.createElement("select", {
+                      value: bgFit,
+                      onChange: e => setBgFit(e.target.value),
+                      className: "flex-1 text-sm"
+                    },
+                      React.createElement("option", { value: 'cover' }, "cover - 拉伸填满"),
+                      React.createElement("option", { value: 'contain' }, "contain - 完整显示"),
+                      React.createElement("option", { value: 'original' }, "original - 原始尺寸")
+                    )
+                  ),
+                  React.createElement("button", {
+                    onClick: () => setBackgroundImage(null),
+                    className: "btn btn-secondary w-full justify-center text-sm",
+                    style: { padding: '6px' }
+                  }, "✕ 清除背景")
                 )
               ),
               React.createElement("div", { className: "text-xs text-center py-2", style: { color: 'var(--text-muted)' } },
