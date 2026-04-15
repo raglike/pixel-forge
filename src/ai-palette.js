@@ -268,7 +268,7 @@ function recommendPalettes(sceneType, details) {
       palette,
       score: finalScore,
       reason: buildRecommendationReason(palette, sceneType, details),
-      colors: PALETTES[palette]
+      colors: PALETTE_PRESETS[palette]
     });
   }
 
@@ -392,8 +392,8 @@ function generateAnalysisText(sceneResult, pixels) {
     `亮度${brightness}% | 饱和度${saturation}% | 对比度${contrast}`;
 }
 
-// PALETTES reference (imported from main app)
-const PALETTES = {
+// PALETTE_PRESETS - separate from main app's PALETTES to avoid conflicts
+const PALETTE_PRESETS = {
   "PICO-8": ["#000000","#1D2B53","#7E2553","#008751","#AB5236","#5F574F","#C2C3C7","#FFF1E8","#FF004D","#FFA300","#FFEC27","#00E436","#29ADFF","#83769C","#FF77A8","#FFCCAA"],
   "NES": ["#000000","#fcfcfc","#f8f8f8","#bcbcbc","#7c7c7c","#a4e4fc","#3cbcfc","#0078f8","#0000fc","#b8b8f8","#6888fc","#0058f8","#0000bc","#d8b8f8","#9878f8","#6844fc","#4428bc","#f8b8f8","#f878f8","#d800cc","#940084","#f8a4c0","#f85898","#e40058","#a80020","#f0d0b0","#f87858","#f83800","#a81000","#fce0a8","#fca044","#e45c10","#881400","#f8d878","#f8b800","#ac7c00","#503000","#d8f878","#b8f818","#00b800","#007800","#b8f8b8","#58d854","#00a800","#006800","#b8f8d8","#58f898","#00a844","#005800","#00fcfc","#00e8d8","#008888","#004058","#f8d8f8","#787878"],
   "GameBoy": ["#0f380f","#306230","#8bac0f","#9bbc0f"],
@@ -2038,7 +2038,7 @@ function applySketchToPixelArt(srcCanvas, options) {
 // Export for use in main app
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    recommendPalette, classifyScene, PALETTES, aiPixelate, applyAiPixelateToCanvas,
+    recommendPalette, classifyScene, PALETTE_PRESETS, aiPixelate, applyAiPixelateToCanvas,
     applyAiTweening, interpolateFrames, computeOpticalFlow,
     applyStyleTransfer, applyStyleTransferToCanvas, STYLE_PRESETS, STYLE_NAMES,
     sketchToPixelArt, applySketchToPixelArt, detectSketchMode
