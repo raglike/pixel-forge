@@ -1,0 +1,27 @@
+{
+  "name": "PixelForge",
+  "short_name": "PixelForge",
+  "description": "专业像素动画工具 - 支持多帧编辑、调色板、AI功能、批量处理",
+  "start_url": "/pixel-forge/",
+  "display": "standalone",
+  "background_color": "#1a1a2e",
+  "theme_color": "#1a1a2e",
+  "orientation": "any",
+  "categories": ["graphics", "design", "games", "utilities"],
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect width='512' height='512' rx='64' fill='%231a1a2e'/><rect x='64' y='128' width='96' height='96' fill='%2300d9ff' rx='8'/><rect x='208' y='128' width='96' height='96' fill='%23e94560' rx='8'/><rect x='352' y='128' width='96' height='96' fill='%2300d9ff' rx='8'/><rect x='64' y='272' width='96' height='96' fill='%23e94560' rx='8'/><rect x='208' y='272' width='96' height='96' fill='%2300d9ff' rx='8'/><rect x='352' y='272' width='96' height='96' fill='%23e94560' rx='8'/><rect x='64' y='368' width='384' height='48' fill='%2300d9ff' rx='8' opacity='0.3'/></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect width='192' height='192' rx='24' fill='%231a1a2e'/><rect x='24' y='48' width='36' height='36' fill='%2300d9ff' rx='4'/><rect x='78' y='48' width='36' height='36' fill='%23e94560' rx='4'/><rect x='132' y='48' width='36' height='36' fill='%2300d9ff' rx='4'/><rect x='24' y='102' width='36' height='36' fill='%23e94560' rx='4'/><rect x='78' y='102' width='36' height='36' fill='%2300d9ff' rx='4'/><rect x='132' y='102' width='36' height='36' fill='%23e94560' rx='4'/></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "prefer_related_applications": false
+}

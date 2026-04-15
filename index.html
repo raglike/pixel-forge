@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PixelForge - 像素动画工具</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#1a1a2e">
+  <meta name="description" content="专业像素动画工具 - 支持多帧编辑、调色板、AI功能、批量处理">
   <script type="importmap">
   {
     "imports": {
@@ -784,6 +787,493 @@
       const [batchColors, setBatchColors] = useState(16); // 统一颜色数
       const [batchPalette, setBatchPalette] = useState('PICO-8'); // 统一调色板
       const [batchSelectedId, setBatchSelectedId] = useState(null); // 当前选中预览
+
+      // F41: Project / Atlas Management
+      const [projectMeta, setProjectMeta] = useState(() => {
+        const saved = localStorage.getItem('pixelforge_project_meta_v1');
+        return saved ? JSON.parse(saved) : { name: '未命名项目', author: '', description: '' };
+      });
+      const [slots, setSlots] = useState(() => {
+        const saved = localStorage.getItem('pixelforge_slots_v1');
+        return saved ? JSON.parse(saved) : [];
+      });
+      const [activeSlotId, setActiveSlotId] = useState(null);
+      const [showProjectModal, setShowProjectModal] = useState(false);
+      const [frameGroupFilter, setFrameGroupFilter] = useState('全部');
+      const [frameGroups, setFrameGroups] = useState(['Idle', 'Walk', 'Run', 'Attack', 'Jump']);
+      const projectFileInputRef = useRef(null);
+      const projectSaveTimeoutRef = useRef(null);
+
+      // F43: Plugin System
+      const [showPluginPanel, setShowPluginPanel] = useState(false);
+      const [pluginEnabled, setPluginEnabled] = useState(() => {
+        const saved = localStorage.getItem('pixelforge_plugin_enabled_v1');
+        return saved ? JSON.parse(saved) : {};
+      });
+
+      // F41: Auto-save to localStorage (debounced, every 30s)
+      useEffect(() => {
+        if (projectSaveTimeoutRef.current) clearTimeout(projectSaveTimeoutRef.current);
+        projectSaveTimeoutRef.current = setTimeout(() => {
+          const autosaveData = {
+            frames,
+            res,
+            colors,
+            paletteMode,
+            palette,
+            fps,
+            spriteCols,
+            frameNaming,
+            currentFrameIndex,
+            activeSlotId,
+            slots,
+            projectMeta,
+            frameGroups,
+            version
+          };
+          localStorage.setItem('pixelforge_autosave_v1', JSON.stringify(autosaveData));
+        }, 500);
+        return () => {
+          if (projectSaveTimeoutRef.current) clearTimeout(projectSaveTimeoutRef.current);
+        };
+      }, [frames, res, colors, paletteMode, palette, fps, spriteCols, frameNaming, currentFrameIndex, activeSlotId, slots, projectMeta, frameGroups, version]);
+
+      // F41: Restore autosave on mount
+      useEffect(() => {
+        const saved = localStorage.getItem('pixelforge_autosave_v1');
+        if (saved) {
+          try {
+            const data = JSON.parse(saved);
+            if (data.frames && data.frames.length > 0) {
+              if (confirm('检测到自动保存的项目，是否恢复？')) {
+                if (data.frames) setFrames(data.frames.map(f => {
+                  const img = new Image();
+                  img.src = f.imageDataUrl;
+                  return { id: f.id || Date.now() + Math.random(), imgEl: img, name: f.name || 'frame', duration: f.duration || 100 };
+                }));
+                if (data.res) setRes(data.res);
+                if (data.colors) setColors(data.colors);
+                if (data.paletteMode) setPaletteMode(data.paletteMode);
+                if (data.palette) setPalette(data.palette);
+                if (data.fps) setFps(data.fps);
+                if (data.spriteCols) setSpriteCols(data.spriteCols);
+                if (data.frameNaming) setFrameNaming(data.frameNaming);
+                if (data.currentFrameIndex !== undefined) setCurrentFrameIndex(data.currentFrameIndex);
+                if (data.activeSlotId) setActiveSlotId(data.activeSlotId);
+                if (data.slots) setSlots(data.slots);
+                if (data.projectMeta) setProjectMeta(data.projectMeta);
+                if (data.frameGroups) setFrameGroups(data.frameGroups);
+                if (data.version) setVersion(data.version);
+              }
+            }
+          } catch (e) {
+            console.warn('Autosave restore failed:', e);
+          }
+        }
+      }, []);
+
+      // Save project meta to localStorage
+      useEffect(() => {
+        localStorage.setItem('pixelforge_project_meta_v1', JSON.stringify(projectMeta));
+      }, [projectMeta]);
+
+      // Save slots to localStorage
+      useEffect(() => {
+        localStorage.setItem('pixelforge_slots_v1', JSON.stringify(slots));
+      }, [slots]);
+
+      // Save plugin enabled state
+      useEffect(() => {
+        localStorage.setItem('pixelforge_plugin_enabled_v1', JSON.stringify(pluginEnabled));
+      }, [pluginEnabled]);
+
+      // F41: Save current slot snapshot
+      const saveCurrentSlot = useCallback(() => {
+        if (!activeSlotId) return null;
+        const slotFrames = frames.map(f => ({
+          id: f.id,
+          name: f.name,
+          group: f.group || 'Idle',
+          imageDataUrl: f.imgEl ? f.imgEl.src : null,
+          duration: f.duration
+        }));
+        return {
+          ...slots.find(s => s.id === activeSlotId),
+          frames: slotFrames,
+          palette,
+          resolution: res
+        };
+      }, [activeSlotId, frames, slots, palette, res]);
+
+      // F41: Switch to a different slot
+      const switchToSlot = useCallback((slotId) => {
+        // Save current slot first
+        const updatedSlot = saveCurrentSlot();
+        let updatedSlots = slots;
+        if (updatedSlot) {
+          updatedSlots = slots.map(s => s.id === activeSlotId ? updatedSlot : s);
+          setSlots(updatedSlots);
+        }
+
+        // Find target slot
+        const targetSlot = updatedSlots.find(s => s.id === slotId);
+        if (!targetSlot) return;
+
+        // Restore target slot frames
+        const restoredFrames = (targetSlot.frames || []).map(f => {
+          const img = new Image();
+          img.src = f.imageDataUrl;
+          return { id: f.id || Date.now() + Math.random(), imgEl: img, name: f.name || 'frame', group: f.group || 'Idle', duration: f.duration || 100 };
+        });
+
+        setFrames(restoredFrames);
+        setCurrentFrameIndex(0);
+        if (targetSlot.palette) setPalette(targetSlot.palette);
+        if (targetSlot.resolution) setRes(targetSlot.resolution);
+        setActiveSlotId(slotId);
+      }, [saveCurrentSlot, slots, activeSlotId]);
+
+      // F41: Create a new slot
+      const createSlot = useCallback((name) => {
+        const newSlot = {
+          id: 'slot_' + Date.now(),
+          name: name || `图集 ${slots.length + 1}`,
+          frames: [],
+          palette: [],
+          resolution: 64
+        };
+        setSlots(prev => [...prev, newSlot]);
+        return newSlot.id;
+      }, [slots.length]);
+
+      // F41: Delete a slot
+      const deleteSlot = useCallback((slotId) => {
+        if (!confirm('确定删除此图集？')) return;
+        const newSlots = slots.filter(s => s.id !== slotId);
+        setSlots(newSlots);
+        if (activeSlotId === slotId) {
+          if (newSlots.length > 0) {
+            switchToSlot(newSlots[0].id);
+          } else {
+            setActiveSlotId(null);
+            setFrames([]);
+          }
+        }
+      }, [slots, activeSlotId, switchToSlot]);
+
+      // F41: Rename a slot
+      const renameSlot = useCallback((slotId, newName) => {
+        setSlots(prev => prev.map(s => s.id === slotId ? { ...s, name: newName } : s));
+      }, []);
+
+      // F41: Save project to .pfp file
+      const saveProject = useCallback(() => {
+        const slotFrames = frames.map(f => ({
+          id: f.id,
+          name: f.name,
+          group: f.group || 'Idle',
+          imageDataUrl: f.imgEl ? f.imgEl.src : null,
+          duration: f.duration
+        }));
+
+        const projectData = {
+          _pfp_version: '1.0',
+          _type: 'pixelforge_project',
+          projectMeta,
+          slots: slots.map(s => s.id === activeSlotId ? {
+            ...s,
+            frames: slotFrames,
+            palette,
+            resolution: res
+          } : s),
+          activeSlotId,
+          currentSlotData: {
+            id: activeSlotId,
+            name: slots.find(s => s.id === activeSlotId)?.name || 'Default',
+            frames: slotFrames,
+            palette,
+            resolution: res
+          },
+          appState: {
+            fps,
+            spriteCols,
+            frameNaming,
+            version
+          }
+        };
+
+        const blob = new Blob([JSON.stringify(projectData, null, 2)], { type: 'application/json' });
+        const filename = (projectMeta.name || 'project').replace(/[^a-zA-Z0-9_\u4e00-\u9fa5-]/g, '_') + '.pfp';
+        saveAs(blob, filename);
+      }, [frames, projectMeta, slots, activeSlotId, palette, res, fps, spriteCols, frameNaming, version]);
+
+      // F41: Load project from .pfp file
+      const loadProject = useCallback((file) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const data = JSON.parse(e.target.result);
+            if (!data._type || data._type !== 'pixelforge_project') {
+              alert('无效的 PixelForge 项目文件');
+              return;
+            }
+
+            // Restore project meta
+            if (data.projectMeta) setProjectMeta(data.projectMeta);
+
+            // Restore app state
+            if (data.appState) {
+              if (data.appState.fps) setFps(data.appState.fps);
+              if (data.appState.spriteCols) setSpriteCols(data.appState.spriteCols);
+              if (data.appState.frameNaming) setFrameNaming(data.appState.frameNaming);
+              if (data.appState.version) setVersion(data.appState.version);
+            }
+
+            // Determine which slot data to use
+            let slotDataToRestore = null;
+            let slotsToRestore = [];
+
+            if (data.currentSlotData) {
+              slotDataToRestore = data.currentSlotData;
+            }
+
+            if (data.slots && data.slots.length > 0) {
+              slotsToRestore = data.slots;
+              if (!slotDataToRestore && slotsToRestore.length > 0) {
+                slotDataToRestore = slotsToRestore[0];
+              }
+            }
+
+            if (slotDataToRestore) {
+              setSlots(slotsToRestore);
+              setActiveSlotId(slotDataToRestore.id || null);
+
+              const restoredFrames = (slotDataToRestore.frames || []).map(f => {
+                const img = new Image();
+                img.src = f.imageDataUrl;
+                return {
+                  id: f.id || Date.now() + Math.random(),
+                  imgEl: img,
+                  name: f.name || 'frame',
+                  group: f.group || 'Idle',
+                  duration: f.duration || 100
+                };
+              });
+
+              setFrames(restoredFrames);
+              setCurrentFrameIndex(0);
+              if (slotDataToRestore.palette) setPalette(slotDataToRestore.palette);
+              if (slotDataToRestore.resolution) setRes(slotDataToRestore.resolution);
+            }
+
+            // Update frame groups from loaded data
+            const allGroups = new Set(['Idle', 'Walk', 'Run', 'Attack', 'Jump']);
+            if (slotDataToRestore?.frames) {
+              slotDataToRestore.frames.forEach(f => {
+                if (f.group) allGroups.add(f.group);
+              });
+            }
+            setFrameGroups(Array.from(allGroups));
+
+            alert('项目加载成功！');
+          } catch (err) {
+            console.error('Failed to load project:', err);
+            alert('加载失败：' + err.message);
+          }
+        };
+        reader.readAsText(file);
+      }, []);
+
+      // F41: Rename current frame
+      const renameFrame = useCallback((index, newName) => {
+        setFrames(prev => prev.map((f, i) => i === index ? { ...f, name: newName } : f));
+      }, []);
+
+      // F41: Set frame group
+      const setFrameGroup = useCallback((index, group) => {
+        setFrames(prev => prev.map((f, i) => i === index ? { ...f, group } : f));
+      }, []);
+
+      // F43: Get enabled plugins
+      const getEnabledPlugins = useCallback(() => {
+        return (window.pixelForgePlugins || []).filter(p => pluginEnabled[p.id] !== false);
+      }, [pluginEnabled]);
+
+      // F43: Toggle plugin enabled state
+      const togglePlugin = useCallback((pluginId) => {
+        setPluginEnabled(prev => ({
+          ...prev,
+          [pluginId]: prev[pluginId] === false ? true : false
+        }));
+      }, []);
+
+      // F43: TexturePacker Exporter Plugin
+      useEffect(() => {
+        if (!window.pixelForgePlugins) window.pixelForgePlugins = [];
+
+        // Only register if not already registered
+        if (!window.pixelForgePlugins.find(p => p.id === 'texturepacker-exporter')) {
+          window.pixelForgePlugins.push({
+            id: 'texturepacker-exporter',
+            name: 'TexturePacker 导出',
+            version: '1.0.0',
+            author: 'PixelForge',
+            description: '导出为 TexturePacker .tps XML 格式',
+            hooks: {
+              onInit: () => {
+                console.log('TexturePacker plugin initialized');
+              },
+              onMenu: () => [{
+                label: '📦 TexturePacker (.tps)',
+                action: () => exportTexturePacker()
+              }],
+              onExport: (frames, format) => {
+                if (format === 'texturepacker') {
+                  return exportTexturePackerTps(frames);
+                }
+                return null;
+              }
+            }
+          });
+        }
+      }, []);
+
+      // F43: TexturePacker TPS export
+      const exportTexturePacker = useCallback(async () => {
+        if (frames.length === 0) {
+          alert('没有可导出的帧');
+          return;
+        }
+
+        const cols = Math.min(spriteCols, frames.length);
+        const rows = Math.ceil(frames.length / cols);
+
+        const tpsData = {
+          frames: frames.map((frame, i) => {
+            const col = i % cols;
+            const row = Math.floor(i / cols);
+            return {
+              name: frame.name || `frame_${i + 1}`,
+              x: col * res,
+              y: row * res,
+              width: res,
+              height: res,
+              duration: frame.duration
+            };
+          }),
+          width: res * cols,
+          height: res * rows,
+          frameWidth: res,
+          frameHeight: res
+        };
+
+        // Generate TPS XML
+        const tpsXml = generateTpsXml(tpsData);
+        const blob = new Blob([tpsXml], { type: 'application/xml' });
+        saveAs(blob, `${projectMeta.name || 'spritesheet'}.tps`);
+      }, [frames, res, spriteCols, projectMeta.name]);
+
+      const generateTpsXml = (data) => {
+        let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+        xml += `<TexturePacker>\n`;
+        xml += `  <Content>\n`;
+        xml += `    <Image filename="spritesheet.png" width="${data.width}" height="${data.height}" />\n`;
+        xml += `    <Sprites>\n`;
+        for (const frame of data.frames) {
+          xml += `      <Sprite name="${escapeXml(frame.name)}" x="${frame.x}" y="${frame.y}" width="${frame.width}" height="${frame.height}" />\n`;
+        }
+        xml += `    </Sprites>\n`;
+        xml += `  </Content>\n`;
+        xml += `</TexturePacker>\n`;
+        return xml;
+      };
+
+      const escapeXml = (str) => {
+        return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+      };
+
+      const exportTexturePackerTps = (framesToExport) => {
+        const cols = Math.min(spriteCols, framesToExport.length);
+        const rows = Math.ceil(framesToExport.length / cols);
+
+        const tpsData = {
+          frames: framesToExport.map((frame, i) => {
+            const col = i % cols;
+            const row = Math.floor(i / cols);
+            return {
+              name: frame.name || `frame_${i + 1}`,
+              x: col * res,
+              y: row * res,
+              width: res,
+              height: res,
+              duration: frame.duration
+            };
+          }),
+          width: res * cols,
+          height: res * rows,
+          frameWidth: res,
+          frameHeight: res
+        };
+
+        const tpsXml = generateTpsXml(tpsData);
+        return new Blob([tpsXml], { type: 'application/xml' });
+      };
+
+      // F43: Get plugin menu items for export menu
+      const getPluginExportMenuItems = useCallback(() => {
+        const items = [];
+        for (const plugin of getEnabledPlugins()) {
+          if (plugin.hooks && plugin.hooks.onMenu) {
+            try {
+              const menuItems = plugin.hooks.onMenu();
+              if (Array.isArray(menuItems)) {
+                items.push(...menuItems);
+              }
+            } catch (e) {
+              console.error(`Plugin ${plugin.name} onMenu failed:`, e);
+            }
+          }
+        }
+        return items;
+      }, [getEnabledPlugins]);
+
+      // F42: PWA - beforeinstallprompt handler
+      const [deferredPrompt, setDeferredPrompt] = useState(null);
+      const [showInstallButton, setShowInstallButton] = useState(false);
+
+      useEffect(() => {
+        const handleBeforeInstallPrompt = (e) => {
+          e.preventDefault();
+          setDeferredPrompt(e);
+          setShowInstallButton(true);
+        };
+        window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+        return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      }, []);
+
+      const handleInstallApp = useCallback(async () => {
+        if (!deferredPrompt) return;
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        if (outcome === 'accepted') {
+          setShowInstallButton(false);
+          setDeferredPrompt(null);
+        }
+      }, [deferredPrompt]);
+
+      // F42: PWA - Offline status
+      const [isOffline, setIsOffline] = useState(!navigator.onLine);
+
+      useEffect(() => {
+        const handleOffline = () => setIsOffline(true);
+        const handleOnline = () => setIsOffline(false);
+        window.addEventListener('offline', handleOffline);
+        window.addEventListener('online', handleOnline);
+        return () => {
+          window.removeEventListener('offline', handleOffline);
+          window.removeEventListener('online', handleOnline);
+        };
+      }, []);
 
       const origCanvasRef = useRef(null);
       const pixelCanvasRef = useRef(null);
@@ -2364,7 +2854,27 @@
             ),
             React.createElement("p", { className: "text-sm", style: { color: 'var(--text-muted)' } }, 
               versionConf.threePreview ? "Phase 3 | 3D预览版 🚀" : versionConf.onionSkin ? "Phase 2 Pro | 洋葱皮 · 调色板 · 动画预设 · GIF导入 · Aseprite导出" : "像素动画工具 Phase 1"
-            )
+            ),
+            // F42: PWA - Offline indicator
+            isOffline && React.createElement("div", {
+              style: {
+                display: 'inline-block',
+                marginTop: '8px',
+                padding: '4px 12px',
+                borderRadius: '20px',
+                background: 'rgba(255, 152, 0, 0.2)',
+                border: '1px solid rgba(255, 152, 0, 0.5)',
+                color: '#ffa500',
+                fontSize: '12px',
+                fontWeight: 'bold'
+              }
+            }, "📴 离线模式 - 功能正常"),
+            // F42: PWA - Install button
+            showInstallButton && React.createElement("button", {
+              onClick: handleInstallApp,
+              className: "btn btn-primary ml-2",
+              style: { marginTop: '8px', padding: '4px 12px', fontSize: '12px' }
+            }, "📱 安装App")
           ),
           
           // Tab Bar
@@ -2392,6 +2902,41 @@
           // Toolbar
           React.createElement("div", { className: "card mb-4" },
             React.createElement("div", { className: "toolbar-grid" },
+              // F41: Project controls
+              React.createElement("button", {
+                onClick: () => setShowProjectModal(true),
+                className: "btn btn-secondary",
+                title: "项目设置"
+              }, "📁 项目"),
+              React.createElement("button", {
+                onClick: saveProject,
+                disabled: frames.length === 0,
+                className: "btn btn-primary",
+                title: "保存项目 (.pfp)"
+              }, "💾 保存"),
+              React.createElement("input", {
+                key: 'project-file-input',
+                ref: projectFileInputRef,
+                type: "file",
+                accept: ".pfp",
+                style: { display: 'none' },
+                onChange: e => { if (e.target.files[0]) loadProject(e.target.files[0]); e.target.value = ''; }
+              }),
+              React.createElement("button", {
+                onClick: () => projectFileInputRef.current?.click(),
+                className: "btn btn-secondary",
+                title: "加载项目 (.pfp)"
+              }, "📂 加载"),
+              // F41: Frame group filter
+              React.createElement("select", {
+                value: frameGroupFilter,
+                onChange: e => setFrameGroupFilter(e.target.value),
+                className: "text-sm",
+                style: { minWidth: '80px' }
+              },
+                React.createElement("option", { value: '全部' }, "全部"),
+                frameGroups.map(g => React.createElement("option", { key: g, value: g }, g))
+              ),
               React.createElement("button", {
                 onClick: addFrameFromImage,
                 className: "btn btn-primary"
@@ -2535,20 +3080,25 @@
             React.createElement("p", { className: "section-title" }, 
               "帧列表",
               React.createElement("span", { className: "ml-2 text-xs", style: { color: 'var(--text-muted)' } }, 
-                `${frames.length}/${versionConf.maxFrames}帧`
-              )
+                `${frameGroupFilter === '全部' ? frames.length : frames.filter(f => f.group === frameGroupFilter).length}/${versionConf.maxFrames}帧`
+              ),
+              frameGroupFilter !== '全部' && React.createElement("span", {
+                className: "ml-2 badge",
+                style: { background: 'var(--accent-secondary)' }
+              }, frameGroupFilter)
             ),
             React.createElement("div", { className: "frame-list min-h-20 p-3 rounded-lg", style: { background: 'var(--bg-dark)' } },
-              frames.length === 0 && React.createElement("p", { className: "text-sm w-full text-center py-6", style: { color: 'var(--text-muted)' } }, "暂无帧，请点击「添加帧」开始"),
-              frames.map((frame, index) => 
-                React.createElement("div", {
+              (frameGroupFilter === '全部' ? frames : frames.filter(f => f.group === frameGroupFilter)).length === 0 && React.createElement("p", { className: "text-sm w-full text-center py-6", style: { color: 'var(--text-muted)' } }, frameGroupFilter !== '全部' ? `暂无${frameGroupFilter}组帧` : "暂无帧，请点击「添加帧」开始"),
+              (frameGroupFilter === '全部' ? frames : frames.filter(f => f.group === frameGroupFilter)).map((frame, index) => {
+                const actualIndex = frameGroupFilter === '全部' ? index : frames.findIndex(f => f.id === frame.id);
+                return React.createElement("div", {
                   key: frame.id,
                   draggable: true,
-                  onDragStart: e => handleDragStart(e, index),
-                  onDragOver: e => handleFrameDragOver(e, index),
+                  onDragStart: e => handleDragStart(e, actualIndex),
+                  onDragOver: e => handleFrameDragOver(e, actualIndex),
                   onDragEnd: handleDragEnd,
-                  onClick: () => { stopAnimation(); setCurrentFrameIndex(index); },
-                  className: `frame-item relative cursor-pointer rounded-lg overflow-hidden border-2 ${currentFrameIndex === index ? 'selected' : 'border-transparent'}`,
+                  onClick: () => { stopAnimation(); setCurrentFrameIndex(actualIndex); },
+                  className: `frame-item relative cursor-pointer rounded-lg overflow-hidden border-2 ${currentFrameIndex === actualIndex ? 'selected' : 'border-transparent'}`,
                   style: { width: 72, height: 72 }
                 },
                   React.createElement("img", {
@@ -2557,16 +3107,20 @@
                     style: { imageRendering: 'pixelated' }
                   }),
                   React.createElement("div", {
-                    className: "absolute bottom-0 left-0 right-0 text-center py-0.5 text-xs font-bold",
+                    className: "absolute bottom-0 left-0 right-0 text-center py-0.5 text-xs font-bold truncate px-1",
                     style: { backgroundColor: 'rgba(0,0,0,0.7)' }
-                  }, index + 1),
+                  }, frame.name || (actualIndex + 1)),
+                  frame.group && frame.group !== 'Idle' && React.createElement("div", {
+                    className: "absolute top-0 left-0 right-0 text-center py-0.5 text-xs",
+                    style: { backgroundColor: 'rgba(0,217,255,0.6)', color: '#000', fontSize: '9px', fontWeight: 'bold' }
+                  }, frame.group),
                   React.createElement("button", {
-                    onClick: e => { e.stopPropagation(); deleteFrame(index); },
+                    onClick: e => { e.stopPropagation(); deleteFrame(actualIndex); },
                     className: "absolute top-0.5 right-0.5 w-5 h-5 rounded-full text-xs flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity",
                     style: { background: 'var(--accent-secondary)', fontSize: 14, lineHeight: 1 }
                   }, "×")
-                )
-              )
+                );
+              })
             )
           ),
 
@@ -2574,6 +3128,64 @@
           React.createElement("div", { className: "grid grid-cols-1 lg:grid-cols-3 gap-6" },
             // Left Column - Upload & Palette
             React.createElement("div", { className: "space-y-4" },
+              // F41: Project Info Panel
+              React.createElement("div", { className: "card" },
+                React.createElement("div", { className: "flex items-center justify-between mb-2" },
+                  React.createElement("p", { className: "section-title mb-0" }, "📁 项目信息"),
+                  React.createElement("button", {
+                    onClick: () => setShowProjectModal(true),
+                    className: "btn btn-secondary text-xs",
+                    style: { padding: '4px 8px' }
+                  }, "编辑")
+                ),
+                React.createElement("p", { className: "text-sm font-bold", style: { color: 'var(--accent)' } }, projectMeta.name || '未命名项目'),
+                projectMeta.author && React.createElement("p", { className: "text-xs", style: { color: 'var(--text-muted)' } }, `作者: ${projectMeta.author}`),
+                // F41: Slot list
+                React.createElement("div", { className: "mt-3" },
+                  React.createElement("div", { className: "flex items-center justify-between mb-2" },
+                    React.createElement("p", { className: "text-xs font-bold", style: { color: 'var(--text-secondary)' } }, "📚 图集列表"),
+                    React.createElement("button", {
+                      onClick: () => {
+                        const name = prompt('输入图集名称:', `图集 ${slots.length + 1}`);
+                        if (name) {
+                          const newId = createSlot(name);
+                          switchToSlot(newId);
+                        }
+                      },
+                      className: "btn btn-primary text-xs",
+                      style: { padding: '2px 8px' }
+                    }, "+ 新建")
+                  ),
+                  slots.length === 0 && React.createElement("p", { className: "text-xs", style: { color: 'var(--text-muted)' } }, "暂无图集，点击「新建」创建"),
+                  slots.map(slot => 
+                    React.createElement("div", {
+                      key: slot.id,
+                      className: `flex items-center gap-2 p-2 rounded-lg mb-1 cursor-pointer transition-all ${activeSlotId === slot.id ? 'bg-accent/20 border border-accent' : 'hover:bg-white/5'}`,
+                      style: { border: activeSlotId === slot.id ? '1px solid var(--accent)' : '1px solid transparent' },
+                      onClick: () => {
+                        if (activeSlotId !== slot.id) {
+                          stopAnimation();
+                          switchToSlot(slot.id);
+                        }
+                      }
+                    },
+                      React.createElement("span", { className: "text-xs flex-1 truncate" }, slot.name),
+                      React.createElement("span", { className: "text-xs", style: { color: 'var(--text-muted)' } }, slot.frames?.length || 0),
+                      React.createElement("button", {
+                        onClick: e => { e.stopPropagation(); renameSlot(slot.id, prompt('输入新名称:', slot.name) || slot.name); },
+                        className: "btn btn-secondary text-xs",
+                        style: { padding: '1px 6px', fontSize: '10px' }
+                      }, "✏️"),
+                      React.createElement("button", {
+                        onClick: e => { e.stopPropagation(); deleteSlot(slot.id); },
+                        className: "btn btn-secondary text-xs",
+                        style: { padding: '1px 6px', fontSize: '10px', color: 'var(--accent-secondary)' }
+                      }, "🗑️")
+                    )
+                  )
+                )
+              ),
+
               // Drop Zone
               React.createElement("div", {
                 className: "drop-zone border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all " + (isDragging ? "drag-over" : "drop-zone-idle"),
@@ -2719,6 +3331,37 @@
                     onChange: e => updateFrameDuration(currentFrameIndex, Number(e.target.value)),
                     className: "w-full"
                   })
+                ),
+                // F41: Frame naming and grouping
+                React.createElement("div", { className: "mb-3" },
+                  React.createElement("label", { className: "text-sm mb-1 block", style: { color: 'var(--text-secondary)' } }, "帧名称"),
+                  React.createElement("div", { className: "flex gap-2" },
+                    React.createElement("input", {
+                      type: "text",
+                      value: currentFrame?.name || '',
+                      onChange: e => renameFrame(currentFrameIndex, e.target.value),
+                      placeholder: "帧名称",
+                      className: "flex-1 text-sm"
+                    }),
+                    React.createElement("select", {
+                      value: currentFrame?.group || 'Idle',
+                      onChange: e => setFrameGroup(currentFrameIndex, e.target.value),
+                      className: "text-sm",
+                      style: { minWidth: '80px' }
+                    },
+                      frameGroups.map(g => React.createElement("option", { key: g, value: g }, g))
+                    )
+                  ),
+                  React.createElement("button", {
+                    onClick: () => {
+                      const newGroup = prompt('输入新分组名称:', '');
+                      if (newGroup && !frameGroups.includes(newGroup)) {
+                        setFrameGroups(prev => [...prev, newGroup]);
+                      }
+                    },
+                    className: "text-xs mt-1",
+                    style: { color: 'var(--accent)', cursor: 'pointer', background: 'none', border: 'none' }
+                  }, "+ 添加分组")
                 ),
                 React.createElement("div", null,
                   React.createElement("label", { className: "text-sm mb-1 block", style: { color: 'var(--text-secondary)' } }, "帧命名规则"),
@@ -2874,7 +3517,17 @@
                     onClick: exportSpriteSheetWithJson,
                     disabled: frames.length < 1 || isExporting,
                     className: "btn btn-secondary w-full justify-center"
-                  }, "📦 雪碧图 + JSON")
+                  }, "📦 雪碧图 + JSON"),
+                  // F43: Plugin export options
+                  getPluginExportMenuItems().map((item, idx) =>
+                    React.createElement("button", {
+                      key: idx,
+                      onClick: item.action,
+                      disabled: frames.length < 1 || isExporting,
+                      className: "btn btn-secondary w-full justify-center",
+                      style: { borderColor: 'var(--accent-secondary)' }
+                    }, item.label)
+                  )
                 )
               ),
               React.createElement("div", { className: "card", style: { background: 'var(--bg-dark)', border: '1px solid var(--border)' } },
@@ -3189,7 +3842,11 @@
               React.createElement("button", {
                 onClick: () => setShowVersionModal(false),
                 className: "btn btn-primary w-full mt-4 justify-center"
-              }, "确定")
+              }, "确定"),
+              React.createElement("button", {
+                onClick: () => { setShowVersionModal(false); setShowPluginPanel(true); },
+                className: "btn btn-secondary w-full mt-2 justify-center text-sm"
+              }, "🔌 插件管理")
             )
           ),
 
@@ -3898,12 +4555,236 @@
                 }, "关闭")
               )
             )
+          ),
+
+          // F41: Project Settings Modal
+          showProjectModal && React.createElement("div", { className: "modal-overlay", onClick: () => setShowProjectModal(false) },
+            React.createElement("div", { className: "modal-content", onClick: e => e.stopPropagation() },
+              React.createElement("h3", { className: "text-xl font-bold mb-4" }, "📁 项目设置"),
+
+              // Project Info
+              React.createElement("div", { className: "mb-4" },
+                React.createElement("label", { className: "text-sm mb-1 block", style: { color: 'var(--text-secondary)' } }, "项目名称"),
+                React.createElement("input", {
+                  type: "text",
+                  value: projectMeta.name,
+                  onChange: e => setProjectMeta(prev => ({ ...prev, name: e.target.value })),
+                  placeholder: "我的像素动画项目",
+                  className: "w-full"
+                })
+              ),
+              React.createElement("div", { className: "mb-4" },
+                React.createElement("label", { className: "text-sm mb-1 block", style: { color: 'var(--text-secondary)' } }, "作者"),
+                React.createElement("input", {
+                  type: "text",
+                  value: projectMeta.author,
+                  onChange: e => setProjectMeta(prev => ({ ...prev, author: e.target.value })),
+                  placeholder: "作者名",
+                  className: "w-full"
+                })
+              ),
+              React.createElement("div", { className: "mb-4" },
+                React.createElement("label", { className: "text-sm mb-1 block", style: { color: 'var(--text-secondary)' } }, "描述"),
+                React.createElement("textarea", {
+                  value: projectMeta.description,
+                  onChange: e => setProjectMeta(prev => ({ ...prev, description: e.target.value })),
+                  placeholder: "项目描述...",
+                  className: "w-full",
+                  rows: 3,
+                  style: { resize: 'vertical', minHeight: '60px' }
+                })
+              ),
+
+              // Slot Management
+              React.createElement("div", { className: "mb-4" },
+                React.createElement("div", { className: "flex items-center justify-between mb-2" },
+                  React.createElement("p", { className: "text-sm font-bold", style: { color: 'var(--accent)' } }, "📚 图集管理"),
+                  React.createElement("button", {
+                    onClick: () => {
+                      const name = prompt('输入图集名称:', `图集 ${slots.length + 1}`);
+                      if (name) {
+                        const newId = createSlot(name);
+                        switchToSlot(newId);
+                        setShowProjectModal(false);
+                      }
+                    },
+                    className: "btn btn-primary text-sm",
+                    style: { padding: '4px 12px' }
+                  }, "+ 新建图集")
+                ),
+                slots.length === 0 && React.createElement("p", { className: "text-xs", style: { color: 'var(--text-muted)' } }, "暂无图集"),
+                React.createElement("div", { className: "space-y-2", style: { maxHeight: '200px', overflowY: 'auto' } },
+                  slots.map(slot =>
+                    React.createElement("div", {
+                      key: slot.id,
+                      className: "flex items-center gap-2 p-2 rounded-lg",
+                      style: { background: 'var(--bg-dark)', border: activeSlotId === slot.id ? '1px solid var(--accent)' : '1px solid var(--border)' }
+                    },
+                      React.createElement("span", {
+                        className: "flex-1 text-sm truncate cursor-pointer",
+                        onClick: () => { stopAnimation(); switchToSlot(slot.id); setShowProjectModal(false); }
+                      }, slot.name),
+                      React.createElement("span", { className: "text-xs", style: { color: 'var(--text-muted)' } }, `${slot.frames?.length || 0}帧`),
+                      React.createElement("button", {
+                        onClick: () => renameSlot(slot.id, prompt('输入新名称:', slot.name) || slot.name),
+                        className: "btn btn-secondary text-xs",
+                        style: { padding: '2px 8px' }
+                      }, "✏️"),
+                      React.createElement("button", {
+                        onClick: () => deleteSlot(slot.id),
+                        className: "btn btn-secondary text-xs",
+                        style: { padding: '2px 8px', color: 'var(--accent-secondary)' }
+                      }, "🗑️")
+                    )
+                  )
+                )
+              ),
+
+              // Action buttons
+              React.createElement("div", { className: "flex gap-3" },
+                React.createElement("button", {
+                  onClick: () => {
+                    if (frames.length > 0) {
+                      const name = prompt('输入图集名称:', `图集 ${slots.length + 1}`);
+                      if (name) {
+                        const newId = createSlot(name);
+                        // Save current frames to new slot
+                        const slotFrames = frames.map(f => ({
+                          id: f.id,
+                          name: f.name,
+                          group: f.group || 'Idle',
+                          imageDataUrl: f.imgEl ? f.imgEl.src : null,
+                          duration: f.duration
+                        }));
+                        const newSlot = {
+                          id: newId,
+                          name,
+                          frames: slotFrames,
+                          palette,
+                          resolution: res
+                        };
+                        setSlots(prev => [...prev, newSlot]);
+                        switchToSlot(newId);
+                      }
+                    }
+                  },
+                  disabled: frames.length === 0,
+                  className: "btn btn-secondary flex-1 justify-center"
+                }, "💾 保存当前为新图集"),
+                React.createElement("button", {
+                  onClick: () => {
+                    // Clear autosave
+                    if (confirm('确定清除所有自动保存数据？')) {
+                      localStorage.removeItem('pixelforge_autosave_v1');
+                      localStorage.removeItem('pixelforge_slots_v1');
+                      localStorage.removeItem('pixelforge_project_meta_v1');
+                      alert('已清除');
+                    }
+                  },
+                  className: "btn btn-secondary justify-center",
+                  style: { color: 'var(--accent-secondary)' }
+                }, "🗑️ 清除草稿")
+              ),
+              React.createElement("button", {
+                onClick: () => setShowProjectModal(false),
+                className: "btn btn-primary w-full mt-3 justify-center"
+              }, "完成")
+            )
+          ),
+
+          // F43: Plugin Panel Modal
+          showPluginPanel && React.createElement("div", { className: "modal-overlay", onClick: () => setShowPluginPanel(false) },
+            React.createElement("div", { className: "modal-content", onClick: e => e.stopPropagation() },
+              React.createElement("h3", { className: "text-xl font-bold mb-4" }, "🔌 插件管理"),
+
+              // Plugin list
+              React.createElement("div", { className: "mb-4" },
+                (window.pixelForgePlugins || []).length === 0 && React.createElement("p", { className: "text-sm text-center py-6", style: { color: 'var(--text-muted)' } }, "暂无已注册插件"),
+                (window.pixelForgePlugins || []).map(plugin =>
+                  React.createElement("div", {
+                    key: plugin.id,
+                    className: "flex items-center gap-3 p-3 rounded-lg mb-2",
+                    style: { background: 'var(--bg-dark)', border: '1px solid var(--border)' }
+                  },
+                    // Enable/Disable toggle
+                    React.createElement("label", { className: "relative inline-flex items-center cursor-pointer flex-shrink-0" },
+                      React.createElement("input", {
+                        type: "checkbox",
+                        checked: pluginEnabled[plugin.id] !== false,
+                        onChange: () => togglePlugin(plugin.id),
+                        className: "sr-only peer"
+                      }),
+                      React.createElement("div", {
+                        className: "w-9 h-5 bg-gray-600 rounded-full peer peer-checked:bg-accent peer-focus:outline-none transition-colors",
+                        style: { background: pluginEnabled[plugin.id] === false ? 'var(--border)' : 'var(--accent)' }
+                      },
+                        React.createElement("div", {
+                          className: "absolute top-0.5 left-0.5 bg-white w-4 h-4 rounded-full transition-transform",
+                          style: { transform: pluginEnabled[plugin.id] === false ? 'translateX(0)' : 'translateX(16px)' }
+                        })
+                      )
+                    ),
+                    // Plugin info
+                    React.createElement("div", { className: "flex-1" },
+                      React.createElement("p", { className: "text-sm font-bold" }, plugin.name),
+                      React.createElement("p", { className: "text-xs", style: { color: 'var(--text-muted)' } },
+                        plugin.author ? `by ${plugin.author} · v${plugin.version}` : `v${plugin.version}`
+                      ),
+                      plugin.description && React.createElement("p", { className: "text-xs mt-1", style: { color: 'var(--text-secondary)' } }, plugin.description)
+                    ),
+                    // Status badge
+                    React.createElement("span", {
+                      className: "badge text-xs",
+                      style: { background: pluginEnabled[plugin.id] === false ? 'var(--border)' : 'var(--accent)', color: pluginEnabled[plugin.id] === false ? 'var(--text-muted)' : '#000' }
+                    }, pluginEnabled[plugin.id] === false ? '已禁用' : '已启用')
+                  )
+                )
+              ),
+
+              // Plugin API info
+              React.createElement("div", { className: "card mb-4", style: { background: 'var(--bg-dark)' } },
+                React.createElement("p", { className: "text-sm font-bold mb-2", style: { color: 'var(--accent)' } }, "📖 插件开发指南"),
+                React.createElement("pre", {
+                  className: "text-xs p-3 rounded overflow-x-auto",
+                  style: { color: 'var(--text-secondary)', maxHeight: '200px', overflowY: 'auto' }
+                }, `// 注册插件
+window.pixelForgePlugins.push({
+  id: 'my-plugin',
+  name: '我的插件',
+  version: '1.0.0',
+  author: '作者名',
+  description: '插件描述',
+  hooks: {
+    onInit: () => { /* 初始化 */ },
+    onMenu: () => [{ label: '菜单项', action: () => {} }],
+    onExport: (frames, format) => { /* 导出扩展 */ }
+  }
+});`)
+              ),
+
+              React.createElement("button", {
+                onClick: () => setShowPluginPanel(false),
+                className: "btn btn-primary w-full justify-center"
+              }, "关闭")
+            )
           )
         )
       );
     }
 
     ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+  </script>
+  <script>
+    // F42: Register Service Worker
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('/sw.js').then(function(registration) {
+          console.log('SW registered:', registration.scope);
+        }).catch(function(error) {
+          console.log('SW registration failed:', error);
+        });
+      });
+    }
   </script>
 </body>
 </html>
