@@ -383,6 +383,7 @@
     const DEFAULT_VERSION = 'pro';
 
     function medianCut(imgData, maxColors) {
+      if (!imgData || !imgData.data || imgData.data.length === 0) return [];
       const pixels = [];
       for (let i = 0; i < imgData.data.length; i += 4) {
         pixels.push([imgData.data[i], imgData.data[i+1], imgData.data[i+2]]);
@@ -814,7 +815,7 @@
         octx.drawImage(imgEl, 0, 0, w, h);
 
         const sampleData = octx.getImageData(0, 0, w, h);
-        if (!sampleData || !sampleData.data) return;
+        if (!sampleData || !sampleData.data || sampleData.data.length === 0) return;
         const autoPalette = medianCut(sampleData.data, colors);
         const currentPalette = paletteMode === "auto" ? autoPalette : palette;
         setPaletteColors(currentPalette);
