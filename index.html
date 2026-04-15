@@ -798,6 +798,7 @@
       const processImage = useCallback(() => {
         if (!currentFrame) return;
         const imgEl = currentFrame.imgEl;
+        if (!imgEl || !imgEl.complete || imgEl.naturalWidth === 0) return;
         const oc = origCanvasRef.current;
         const pc = pixelCanvasRef.current;
         if (!oc || !pc) return;
@@ -809,9 +810,11 @@
 
         oc.width = w; oc.height = h;
         const octx = oc.getContext("2d");
+        if (!octx) return;
         octx.drawImage(imgEl, 0, 0, w, h);
 
         const sampleData = octx.getImageData(0, 0, w, h);
+        if (!sampleData || !sampleData.data) return;
         const autoPalette = medianCut(sampleData.data, colors);
         const currentPalette = paletteMode === "auto" ? autoPalette : palette;
         setPaletteColors(currentPalette);
