@@ -2035,12 +2035,90 @@ function applySketchToPixelArt(srcCanvas, options) {
   return resultCanvas;
 }
 
+// ========== F35: IMAGE SPLIT / GRID CUT ==========
+
+/**
+ * Split an image into a grid of sub-images
+ * @param {HTMLImageElement} imgEl - Source image element
+ * @param {number} cols - Number of columns
+ * @param {number} rows - Number of rows
+ * @returns {Array} Array of objects, each containing { canvas, col, row } for each cell
+ */
+function splitImageGrid(imgEl, cols, rows) {
+  if (!imgEl || !imgEl.width || !imgEl.height) return [];
+  if (cols < 1 || rows < 1) return [];
+
+  const results = [];
+  const cellWidth = Math.floor(imgEl.width / cols);
+  const cellHeight = Math.floor(imgEl.height / rows);
+
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const canvas = document.createElement('canvas');
+      canvas.width = cellWidth;
+      canvas.height = cellHeight;
+      const ctx = canvas.getContext('2d');
+
+      // Draw the portion of the image
+      ctx.drawImage(
+        imgEl,
+        col * cellWidth,     // source x
+        row * cellHeight,    // source y
+        cellWidth,           // source width
+        cellHeight,          // source height
+        0,                   // dest x
+        0,                   // dest y
+        cellWidth,           // dest width
+        cellHeight           // dest height
+      );
+
+      results.push({
+        canvas,
+        col,
+        row,
+        index: row * cols + col
+      });
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Convert split grid results to frames array
+ * @param {Array} splitResults - Results from splitImageGrid
+ * @param {string} baseName - Base name for frames
+ * @param {number} duration - Frame duration in ms
+ * @returns {Promise<Array>} Array of frame objects with imgEl
+ */
+async function splitResultsToFrames(splitResults, baseName = 'split', duration = 100) {
+  const frames = [];
+
+  for (const result of splitResults) {
+    const imgEl = new Image();
+    await new Promise(resolve => {
+      imgEl.onload = resolve;
+      imgEl.src = result.canvas.toDataURL();
+    });
+
+    frames.push({
+      id: Date.now() + Math.random(),
+      imgEl,
+      name: `${baseName}_${result.row}_${result.col}`,
+      duration
+    });
+  }
+
+  return frames;
+}
+
 // Export for use in main app
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     recommendPalette, classifyScene, PALETTE_PRESETS, aiPixelate, applyAiPixelateToCanvas,
     applyAiTweening, interpolateFrames, computeOpticalFlow,
     applyStyleTransfer, applyStyleTransferToCanvas, STYLE_PRESETS, STYLE_NAMES,
-    sketchToPixelArt, applySketchToPixelArt, detectSketchMode
+    sketchToPixelArt, applySketchToPixelArt, detectSketchMode,
+    splitImageGrid, splitResultsToFrames
   };
 }

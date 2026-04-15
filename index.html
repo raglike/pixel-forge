@@ -550,6 +550,13 @@
       const [stylePreviewCanvas, setStylePreviewCanvas] = useState(null);
       const [styleTransferLoading, setStyleTransferLoading] = useState(false);
 
+      // F35: Image Split / Grid Cut
+      const [showSplitImageModal, setShowSplitImageModal] = useState(false);
+      const [splitCols, setSplitCols] = useState(2);
+      const [splitRows, setSplitRows] = useState(2);
+      const [splitUniform, setSplitUniform] = useState(true);
+      const splitPreviewRef = useRef(null);
+
       // UI State
       const [activeTab, setActiveTab] = useState('main');
       const [showVersionModal, setShowVersionModal] = useState(false);
@@ -598,6 +605,48 @@
       useEffect(() => {
         processImage();
       }, [currentFrame, res, colors, palette, paletteMode]);
+
+      // F35: Draw split preview with grid overlay
+      useEffect(() => {
+        if (!showSplitImageModal || !currentFrame?.imgEl) return;
+        const canvas = splitPreviewRef.current;
+        if (!canvas) return;
+
+        const imgEl = currentFrame.imgEl;
+        // Scale to fit preview area
+        const maxW = 400, maxH = 150;
+        let w = imgEl.width, h = imgEl.height;
+        const scale = Math.min(maxW / w, maxH / h, 1);
+        w = Math.round(w * scale);
+        h = Math.round(h * scale);
+
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(imgEl, 0, 0, w, h);
+
+        // Draw grid overlay
+        ctx.strokeStyle = 'rgba(0, 255, 136, 0.8)';
+        ctx.lineWidth = 2;
+
+        const cellW = w / splitCols;
+        const cellH = h / splitRows;
+
+        for (let col = 1; col < splitCols; col++) {
+          ctx.beginPath();
+          ctx.moveTo(col * cellW, 0);
+          ctx.lineTo(col * cellW, h);
+          ctx.stroke();
+        }
+
+        for (let row = 1; row < splitRows; row++) {
+          ctx.beginPath();
+          ctx.moveTo(0, row * cellH);
+          ctx.lineTo(w, row * cellH);
+          ctx.stroke();
+        }
+      }, [showSplitImageModal, currentFrame, splitCols, splitRows]);
 
       useEffect(() => {
         return () => {
@@ -2265,6 +2314,16 @@
                     style: { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }
                   }, "✏️ 草图生像素画")
                 ),
+                // F35: Image Split / Grid Cut (Enterprise only)
+                version === 'enterprise' && React.createElement("div", { className: "mb-3" },
+                  React.createElement("label", { className: "text-sm mb-1 block", style: { color: 'var(--text-secondary)' } }, "🪓 图片拆分"),
+                  React.createElement("button", {
+                    onClick: () => { setShowSplitImageModal(true); },
+                    disabled: frames.length === 0,
+                    className: "btn btn-secondary w-full justify-center",
+                    style: { background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)' }
+                  }, "🪓 拆分图片")
+                ),
                 paletteMode === "custom" && versionConf.customPalette && React.createElement("div", { className: "mb-3" },
                   React.createElement("div", { className: "flex gap-2 mb-2" },
                     Object.keys(customPalettes).length > 0 && React.createElement("select", {
@@ -3142,6 +3201,119 @@
                   onClick: () => setShowStyleTransferModal(false),
                   className: "btn btn-secondary flex-1 justify-center"
                 }, "取消")
+              )
+            )
+          ),
+
+          // F35: Image Split / Grid Cut Modal
+          showSplitImageModal && React.createElement("div", { className: "modal-overlay", onClick: () => { setShowSplitImageModal(false); } },
+            React.createElement("div", { className: "modal-content", style: { maxWidth: '600px' }, onClick: e => e.stopPropagation() },
+              React.createElement("h3", { className: "text-xl font-bold mb-4", style: { color: 'var(--accent)' } }, "🪓 图片拆分"),
+              React.createElement("p", { className: "text-sm mb-4", style: { color: 'var(--text-secondary)' } }, "将大图按网格拆分为多个帧，适合 spritesheet 拆分"),
+
+              // Current frame preview
+              React.createElement("div", { className: "mb-4" },
+                React.createElement("label", { className: "text-sm mb-2 block", style: { color: 'var(--text-secondary)' } }, "当前帧预览"),
+                React.createElement("div", {
+                  className: "canvas-container",
+                  style: { minHeight: '120px', background: '#0d0d1a', position: 'relative' }
+                },
+                  currentFrame?.imgEl && React.createElement("canvas", {
+                    ref: splitPreviewRef,
+                    style: { maxWidth: '100%', maxHeight: '150px', imageRendering: 'pixelated' }
+                  })
+                )
+              ),
+
+              // Grid settings
+              React.createElement("div", { className: "mb-4" },
+                React.createElement("div", { className: "flex items-center gap-2 mb-2" },
+                  React.createElement("input", {
+                    type: "checkbox",
+                    id: "splitUniform",
+                    checked: splitUniform,
+                    onChange: e => {
+                      setSplitUniform(e.target.checked);
+                      if (e.target.checked) setSplitRows(splitCols);
+                    }
+                  }),
+                  React.createElement("label", { htmlFor: "splitUniform", style: { color: 'var(--text-secondary)' } }, "均匀分割（行列数相同）")
+                ),
+                React.createElement("div", { className: "grid grid-cols-2 gap-4" },
+                  React.createElement("div", null,
+                    React.createElement("label", { className: "text-sm mb-1 block", style: { color: 'var(--text-secondary)' } }, "列数"),
+                    React.createElement("input", {
+                      type: "number",
+                      min: 1,
+                      max: 16,
+                      value: splitCols,
+                      onChange: e => {
+                        const val = Math.max(1, Math.min(16, Number(e.target.value)));
+                        setSplitCols(val);
+                        if (splitUniform) setSplitRows(val);
+                      },
+                      className: "w-full"
+                    })
+                  ),
+                  React.createElement("div", null,
+                    React.createElement("label", { className: "text-sm mb-1 block", style: { color: 'var(--text-secondary)' } }, "行数"),
+                    React.createElement("input", {
+                      type: "number",
+                      min: 1,
+                      max: 16,
+                      value: splitRows,
+                      onChange: e => {
+                        const val = Math.max(1, Math.min(16, Number(e.target.value)));
+                        setSplitRows(val);
+                        if (splitUniform) setSplitCols(val);
+                      },
+                      disabled: splitUniform,
+                      className: "w-full"
+                    })
+                  )
+                )
+              ),
+
+              // Grid preview overlay info
+              React.createElement("div", { className: "mb-4 text-sm", style: { color: 'var(--text-muted)' } },
+                `拆分结果: ${splitCols * splitRows} 帧 (${splitCols}×${splitRows})`
+              ),
+
+              // Action buttons
+              React.createElement("div", { className: "flex gap-3" },
+                React.createElement("button", {
+                  onClick: async () => {
+                    if (!currentFrame?.imgEl) return;
+
+                    const imgEl = currentFrame.imgEl;
+                    const splitResults = window.splitImageGrid(imgEl, splitCols, splitRows);
+
+                    if (splitResults.length === 0) {
+                      alert('拆分失败，请确保图片已加载');
+                      return;
+                    }
+
+                    const newFrames = await window.splitResultsToFrames(splitResults, currentFrame.name || 'frame', currentFrame.duration || 100);
+
+                    // Check frame limit
+                    if (newFrames.length > versionConf.maxFrames) {
+                      alert(`拆分后有${newFrames.length}帧，超出${versionConf.maxFrames}帧限制`);
+                      return;
+                    }
+
+                    // Replace all frames with the split frames
+                    setFrames(newFrames);
+                    setCurrentFrameIndex(0);
+                    setShowSplitImageModal(false);
+                  },
+                  disabled: !currentFrame?.imgEl,
+                  className: "btn btn-primary flex-1 justify-center",
+                  style: { background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)' }
+                }, "🪓 拆分"),
+                React.createElement("button", {
+                  onClick: () => setShowSplitImageModal(false),
+                  className: "btn btn-secondary flex-1 justify-center"
+                }, "关闭")
               )
             )
           )
