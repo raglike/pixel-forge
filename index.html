@@ -19,6 +19,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+  <script src="./src/ai-palette.js"></script>
   <style>
     :root {
       --bg-dark: #1a1a2e;
@@ -353,6 +354,7 @@
         asepriteExport: false,
         gifImport: false,
         threePreview: false,
+        aiFeatures: false,
       },
       pro: {
         maxResolution: 256,
@@ -363,6 +365,7 @@
         asepriteExport: true,
         gifImport: true,
         threePreview: true,
+        aiFeatures: true,
       },
       enterprise: {
         maxResolution: Infinity,
@@ -373,6 +376,7 @@
         asepriteExport: true,
         gifImport: true,
         threePreview: true,
+        aiFeatures: true,
       }
     };
 
@@ -514,6 +518,36 @@
       const [asepriteLayerName, setAsepriteLayerName] = useState('Layer 1');
       const [asepriteFrameTags, setAsepriteFrameTags] = useState('');
       const [showAsepriteModal, setShowAsepriteModal] = useState(false);
+
+      // F33: AI Smart Palette Recommendation
+      const [showAiPaletteModal, setShowAiPaletteModal] = useState(false);
+      const [aiPaletteResult, setAiPaletteResult] = useState(null);
+      const [aiPaletteLoading, setAiPaletteLoading] = useState(false);
+
+      // F34: Sketch to Pixel Art
+      const [showSketchModal, setShowSketchModal] = useState(false);
+      const [sketchPreview, setSketchPreview] = useState(null);
+      const [sketchSettings, setSketchSettings] = useState({
+        pixelSize: 4,
+        lineThickness: 2,
+        smoothing: 50,
+        lineColor: '#000000',
+        bgColor: '#ffffff'
+      });
+
+      // F30: AI Edge-Preserving Pixelation
+      const [edgeStrength, setEdgeStrength] = useState(50);
+
+      // F31: AI Tweening (Smart Frame Interpolation)
+      const [aiTweenTargetFrames, setAiTweenTargetFrames] = useState(8);
+      const [aiTweenStrength, setAiTweenStrength] = useState(50);
+      const [aiTweenLoading, setAiTweenLoading] = useState(false);
+
+      // F32: AI Style Transfer
+      const [showStyleTransferModal, setShowStyleTransferModal] = useState(false);
+      const [selectedStyle, setSelectedStyle] = useState(null);
+      const [stylePreviewCanvas, setStylePreviewCanvas] = useState(null);
+      const [styleTransferLoading, setStyleTransferLoading] = useState(false);
 
       // UI State
       const [activeTab, setActiveTab] = useState('main');
@@ -801,6 +835,177 @@
         }
         pctx.putImageData(pixelData, 0, 0);
       }, [currentFrame, res, colors, palette, paletteMode]);
+
+      // F33: AI Smart Palette Recommendation
+      const analyzeWithAi = useCallback(() => {
+        if (!origCanvasRef.current) return;
+        setAiPaletteLoading(true);
+        setAiPaletteResult(null);
+
+        // Use setTimeout to allow UI to update before heavy computation
+        setTimeout(() => {
+          try {
+            const result = recommendPalette(origCanvasRef.current);
+            setAiPaletteResult(result);
+          } catch (err) {
+            console.error('AI palette analysis failed:', err);
+            setAiPaletteResult({ success: false, message: '分析失败: ' + err.message });
+          }
+          setAiPaletteLoading(false);
+        }, 100);
+      }, []);
+
+      const applyAiRecommendation = (paletteName) => {
+        setPaletteMode(paletteName);
+        setShowAiPaletteModal(false);
+      };
+
+      // F34: Sketch to Pixel Art
+      const handleSketchGeneration = useCallback(() => {
+        if (!origCanvasRef.current) return;
+
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = origCanvasRef.current.width;
+        tempCanvas.height = origCanvasRef.current.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.drawImage(origCanvasRef.current, 0, 0);
+
+        // Scale down for processing if too large
+        const maxSize = 256;
+        if (tempCanvas.width > maxSize || tempCanvas.height > maxSize) {
+          const scale = maxSize / Math.max(tempCanvas.width, tempCanvas.height);
+          const scaledCanvas = document.createElement('canvas');
+          scaledCanvas.width = Math.round(tempCanvas.width * scale);
+          scaledCanvas.height = Math.round(tempCanvas.height * scale);
+          const scaledCtx = scaledCanvas.getContext('2d');
+          scaledCtx.drawImage(tempCanvas, 0, 0, scaledCanvas.width, scaledCanvas.height);
+          tempCanvas.width = scaledCanvas.width;
+          tempCanvas.height = scaledCanvas.height;
+          tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+          tempCtx.drawImage(scaledCanvas, 0, 0);
+        }
+
+        const result = sketchToPixelArt(tempCanvas, {
+          pixelSize: sketchSettings.pixelSize,
+          lineThickness: sketchSettings.lineThickness,
+          smoothing: sketchSettings.smoothing,
+          lineColor: sketchSettings.lineColor,
+          bgColor: sketchSettings.bgColor
+        });
+
+        const previewCanvas = document.createElement('canvas');
+        previewCanvas.width = result.width;
+        previewCanvas.height = result.height;
+        const previewCtx = previewCanvas.getContext('2d');
+        previewCtx.putImageData(result.imageData, 0, 0);
+
+        setSketchPreview({
+          canvas: previewCanvas,
+          mode: result.mode
+        });
+      }, [origCanvasRef, sketchSettings]);
+
+      const applySketchToCurrentFrame = () => {
+        if (!sketchPreview || !currentFrame) return;
+
+        // Create new image from preview
+        const newImg = new Image();
+        newImg.onload = () => {
+          const newFrames = frames.map(f =>
+            f.id === currentFrame.id ? { ...f, imgEl: newImg } : f
+          );
+          setFrames(newFrames);
+          setCurrentFrame({ ...currentFrame, imgEl: newImg });
+          setShowSketchModal(false);
+          setSketchPreview(null);
+        };
+        newImg.src = sketchPreview.canvas.toDataURL();
+      };
+
+      // F30: AI Edge-Preserving Pixelation
+      const applyAiPixelation = useCallback(() => {
+        if (!currentFrame) return;
+
+        const imgEl = currentFrame.imgEl;
+        if (!imgEl) return;
+
+        // Create a temporary canvas with the original image scaled to max 512
+        const maxW = 512, maxH = 512;
+        let w = imgEl.width, h = imgEl.height;
+        const scale = Math.min(maxW / w, maxH / h, 1);
+        w = Math.round(w * scale);
+        h = Math.round(h * scale);
+
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = w;
+        tempCanvas.height = h;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.drawImage(imgEl, 0, 0, w, h);
+
+        // Apply AI pixelation
+        const pixelatedData = aiPixelate(tempCanvas, res, colors, edgeStrength, palette.length > 0 ? palette : null);
+
+        // Create result canvas
+        const resultCanvas = document.createElement('canvas');
+        resultCanvas.width = res;
+        resultCanvas.height = res;
+        const resultCtx = resultCanvas.getContext('2d');
+        resultCtx.putImageData(pixelatedData, 0, 0);
+
+        // Create new image from result
+        const newImgEl = new Image();
+        newImgEl.onload = () => {
+          // Update current frame with new pixelated image
+          setFrames(prev => {
+            const updated = [...prev];
+            updated[currentFrameIndex] = {
+              ...updated[currentFrameIndex],
+              imgEl: newImgEl,
+              name: (updated[currentFrameIndex].name || 'frame') + ' (AI)'
+            };
+            return updated;
+          });
+
+          // Update palette colors from AI result
+          const sampleData = resultCtx.getImageData(0, 0, res, res);
+          const autoPalette = medianCut(sampleData.data, colors);
+          setPaletteColors(autoPalette);
+          if (paletteMode === "auto") {
+            setPalette(autoPalette);
+          }
+        };
+        newImgEl.src = resultCanvas.toDataURL();
+      }, [currentFrame, currentFrameIndex, res, colors, palette, paletteMode, edgeStrength]);
+
+      // F31: AI Tweening - Smart Frame Interpolation
+      const handleAiTweening = useCallback(async () => {
+        if (frames.length === 0) return;
+
+        setAiTweenLoading(true);
+
+        try {
+          // Get selected frames or all frames
+          let sourceFrames = frames;
+          // Apply tweening using the global function from ai-palette.js
+          const newFrames = await window.applyAiTweening(sourceFrames, aiTweenTargetFrames, aiTweenStrength);
+
+          if (newFrames.length > 0) {
+            setFrames(prev => {
+              // Check max frames limit
+              if (prev.length + newFrames.length > versionConf.maxFrames) {
+                alert(`帧数将超过版本限制(${versionConf.maxFrames}帧)，请升级或减少目标帧数。`);
+                return prev;
+              }
+              return [...prev, ...newFrames];
+            });
+          }
+        } catch (err) {
+          console.error('AI tweening failed:', err);
+          alert('AI补间失败：' + err.message);
+        } finally {
+          setAiTweenLoading(false);
+        }
+      }, [frames, aiTweenTargetFrames, aiTweenStrength, versionConf.maxFrames]);
 
       const processFrameToCanvas = (frame, canvas) => {
         const imgEl = frame.imgEl;
@@ -1983,6 +2188,79 @@
                   versionConf.customPalette && React.createElement("option", { value: "custom" }, "🎨 自定义调色板"),
                   Object.keys(PALETTES).map(k=>React.createElement("option", { key: k, value: k }, k))
                 ),
+                versionConf.aiFeatures && React.createElement("button", {
+                  onClick: () => { setShowAiPaletteModal(true); analyzeWithAi(); },
+                  className: "btn btn-secondary w-full mb-3 justify-center",
+                  style: { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }
+                }, "🤖 AI 调色板推荐"),
+                version === 'enterprise' && React.createElement("div", { className: "mb-3" },
+                  React.createElement("label", { className: "text-sm mb-1 block", style: { color: 'var(--text-secondary)' } }, "边缘强度: " + edgeStrength),
+                  React.createElement("input", {
+                    type: "range",
+                    min: 0,
+                    max: 100,
+                    value: edgeStrength,
+                    onChange: e => setEdgeStrength(Number(e.target.value)),
+                    className: "w-full mb-2"
+                  }),
+                  React.createElement("button", {
+                    onClick: applyAiPixelation,
+                    className: "btn btn-secondary w-full justify-center",
+                    style: { background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)' }
+                  }, "✨ AI像素化")
+                ),
+                version === 'enterprise' && React.createElement("div", { className: "mb-3" },
+                  React.createElement("label", { className: "text-sm mb-1 block", style: { color: 'var(--text-secondary)' } }, "🎬 AI补间动画"),
+                  React.createElement("div", { className: "flex gap-2 mb-2" },
+                    React.createElement("select", {
+                      className: "flex-1",
+                      value: aiTweenTargetFrames,
+                      onChange: e => setAiTweenTargetFrames(Number(e.target.value)),
+                    },
+                      React.createElement("option", { value: 4 }, "4帧"),
+                      React.createElement("option", { value: 8 }, "8帧"),
+                      React.createElement("option", { value: 16 }, "16帧")
+                    ),
+                    React.createElement("button", {
+                      onClick: handleAiTweening,
+                      disabled: aiTweenLoading || frames.length === 0,
+                      className: "btn btn-secondary justify-center",
+                      style: { background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' }
+                    }, aiTweenLoading ? "处理中..." : "生成")
+                  ),
+                  React.createElement("label", { className: "text-sm mb-1 block", style: { color: 'var(--text-secondary)' } }, "插值强度: " + aiTweenStrength + "%"),
+                  React.createElement("input", {
+                    type: "range",
+                    min: 0,
+                    max: 100,
+                    value: aiTweenStrength,
+                    onChange: e => setAiTweenStrength(Number(e.target.value)),
+                    className: "w-full"
+                  }),
+                  React.createElement("p", { className: "text-xs mt-1", style: { color: 'var(--text-muted)' } },
+                    frames.length === 1 ? "提示：只有1帧，将先复制再插值" : `提示：基于${frames.length}帧生成中间过渡帧`
+                  )
+                ),
+                // F32: AI Style Transfer (Enterprise only)
+                version === 'enterprise' && React.createElement("div", { className: "mb-3" },
+                  React.createElement("label", { className: "text-sm mb-1 block", style: { color: 'var(--text-secondary)' } }, "🎨 AI风格迁移"),
+                  React.createElement("button", {
+                    onClick: () => { setShowStyleTransferModal(true); setSelectedStyle(null); setStylePreviewCanvas(null); },
+                    disabled: frames.length === 0,
+                    className: "btn btn-secondary w-full justify-center",
+                    style: { background: 'linear-gradient(135deg, #ff6b6b 0%, #feca57 100%)' }
+                  }, "✨ 应用风格效果")
+                ),
+                // F34: Sketch to Pixel Art (Enterprise only)
+                version === 'enterprise' && React.createElement("div", { className: "mb-3" },
+                  React.createElement("label", { className: "text-sm mb-1 block", style: { color: 'var(--text-secondary)' } }, "✏️ 草图生成"),
+                  React.createElement("button", {
+                    onClick: () => { setShowSketchModal(true); setSketchPreview(null); },
+                    disabled: frames.length === 0,
+                    className: "btn btn-secondary w-full justify-center",
+                    style: { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }
+                  }, "✏️ 草图生像素画")
+                ),
                 paletteMode === "custom" && versionConf.customPalette && React.createElement("div", { className: "mb-3" },
                   React.createElement("div", { className: "flex gap-2 mb-2" },
                     Object.keys(customPalettes).length > 0 && React.createElement("select", {
@@ -2561,8 +2839,309 @@
                 className: "btn btn-secondary w-full justify-center mt-4"
               }, "取消")
             )
+          ),
+
+          // F34: Sketch to Pixel Art Modal
+          showSketchModal && React.createElement("div", { className: "modal-overlay", onClick: () => setShowSketchModal(false) },
+            React.createElement("div", { className: "modal-content", style: { maxWidth: '600px' }, onClick: e => e.stopPropagation() },
+              React.createElement("h3", { className: "text-xl font-bold mb-4", style: { color: 'var(--accent)' } }, "✏️ 草图生像素画"),
+              React.createElement("p", { className: "text-sm mb-4", style: { color: 'var(--text-secondary)' } }, "上传线稿/草图，AI自动识别并生成干净清晰的像素画"),
+              React.createElement("p", { className: "text-xs mb-4", style: { color: 'var(--text-muted)' } }, "支持白底黑线或黑底白线，自动识别模式"),
+
+              // Settings
+              React.createElement("div", { className: "card mb-4" },
+                React.createElement("div", { className: "mb-3" },
+                  React.createElement("label", { className: "text-sm mb-1 block", style: { color: 'var(--text-secondary)' } }, "像素大小: " + sketchSettings.pixelSize),
+                  React.createElement("input", {
+                    type: "range",
+                    min: 1,
+                    max: 8,
+                    value: sketchSettings.pixelSize,
+                    onChange: e => setSketchSettings(s => ({ ...s, pixelSize: Number(e.target.value) })),
+                    className: "w-full"
+                  })
+                ),
+                React.createElement("div", { className: "mb-3" },
+                  React.createElement("label", { className: "text-sm mb-1 block", style: { color: 'var(--text-secondary)' } }, "线条粗细: " + sketchSettings.lineThickness + "px"),
+                  React.createElement("input", {
+                    type: "range",
+                    min: 1,
+                    max: 5,
+                    value: sketchSettings.lineThickness,
+                    onChange: e => setSketchSettings(s => ({ ...s, lineThickness: Number(e.target.value) })),
+                    className: "w-full"
+                  })
+                ),
+                React.createElement("div", { className: "mb-3" },
+                  React.createElement("label", { className: "text-sm mb-1 block", style: { color: 'var(--text-secondary)' } }, "平滑降噪: " + sketchSettings.smoothing + "%"),
+                  React.createElement("input", {
+                    type: "range",
+                    min: 0,
+                    max: 100,
+                    value: sketchSettings.smoothing,
+                    onChange: e => setSketchSettings(s => ({ ...s, smoothing: Number(e.target.value) })),
+                    className: "w-full"
+                  })
+                ),
+                React.createElement("div", { className: "flex gap-4 mb-3" },
+                  React.createElement("div", { className: "flex-1" },
+                    React.createElement("label", { className: "text-sm mb-1 block", style: { color: 'var(--text-secondary)' } }, "线条颜色"),
+                    React.createElement("input", {
+                      type: "color",
+                      value: sketchSettings.lineColor,
+                      onChange: e => setSketchSettings(s => ({ ...s, lineColor: e.target.value })),
+                      className: "w-full h-8 rounded cursor-pointer"
+                    })
+                  ),
+                  React.createElement("div", { className: "flex-1" },
+                    React.createElement("label", { className: "text-sm mb-1 block", style: { color: 'var(--text-secondary)' } }, "背景颜色"),
+                    React.createElement("input", {
+                      type: "color",
+                      value: sketchSettings.bgColor,
+                      onChange: e => setSketchSettings(s => ({ ...s, bgColor: e.target.value })),
+                      className: "w-full h-8 rounded cursor-pointer"
+                    })
+                  )
+                ),
+                React.createElement("button", {
+                  onClick: handleSketchGeneration,
+                  className: "btn btn-secondary w-full justify-center",
+                  style: { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }
+                }, "🔮 生成预览")
+              ),
+
+              // Preview
+              sketchPreview && React.createElement("div", { className: "mb-4" },
+                React.createElement("p", { className: "text-sm mb-2", style: { color: 'var(--text-secondary)' } },
+                  "检测模式: " + (sketchPreview.mode === 'normal' ? "白底黑线" : "黑底白线")
+                ),
+                React.createElement("div", { className: "flex justify-center" },
+                  React.createElement("img", {
+                    src: sketchPreview.canvas.toDataURL(),
+                    className: "rounded",
+                    style: { maxWidth: '100%', maxHeight: '300px', imageRendering: 'pixelated' }
+                  })
+                )
+              ),
+
+              React.createElement("div", { className: "flex gap-3" },
+                React.createElement("button", {
+                  onClick: applySketchToCurrentFrame,
+                  disabled: !sketchPreview,
+                  className: "btn btn-primary flex-1 justify-center"
+                }, "✓ 应用到当前帧"),
+                React.createElement("button", {
+                  onClick: () => { setShowSketchModal(false); setSketchPreview(null); },
+                  className: "btn btn-secondary flex-1 justify-center"
+                }, "关闭")
+              )
+            )
+          ),
+
+          // F33: AI Smart Palette Recommendation Modal
+          showAiPaletteModal && React.createElement("div", { className: "modal-overlay", onClick: () => setShowAiPaletteModal(false) },
+            React.createElement("div", { className: "modal-content", style: { maxWidth: '520px' }, onClick: e => e.stopPropagation() },
+              React.createElement("h3", { className: "text-xl font-bold mb-4", style: { color: 'var(--accent)' } }, "🤖 AI 智能调色板推荐"),
+              aiPaletteLoading && React.createElement("div", { className: "text-center py-8" },
+                React.createElement("div", { className: "text-4xl mb-3 animate-pulse" }, "🔮"),
+                React.createElement("p", { style: { color: 'var(--text-secondary)' } }, "正在分析图片内容...")
+              ),
+              !aiPaletteLoading && aiPaletteResult && aiPaletteResult.success && React.createElement("div", null,
+                React.createElement("div", { className: "card mb-4", style: { background: 'var(--bg-dark)' } },
+                  React.createElement("p", { className: "text-sm mb-2", style: { color: 'var(--text-secondary)' } }, "📊 图片分析结果"),
+                  React.createElement("p", { className: "text-xs", style: { color: 'var(--text-muted)' } }, aiPaletteResult.analysis)
+                ),
+                React.createElement("p", { className: "section-title mb-3" }, "推荐调色板"),
+                React.createElement("div", { className: "space-y-3" },
+                  aiPaletteResult.recommendations.slice(0, 4).map((rec, idx) =>
+                    React.createElement("div", { key: rec.palette, className: "preset-card" + (idx === 0 ? ' active' : '') },
+                      React.createElement("div", { className: "flex items-center justify-between mb-2" },
+                        React.createElement("div", { className: "flex items-center gap-2" },
+                          React.createElement("span", { className: "font-bold" }, idx === 0 ? "🏆 " : idx + 1 + ". "),
+                          React.createElement("span", null, rec.palette),
+                          idx === 0 && React.createElement("span", { className: "badge" }, "最佳")
+                        ),
+                        React.createElement("span", { className: "text-xs", style: { color: 'var(--accent)' } },
+                          Math.round(rec.score * 100) + "% 匹配"
+                        )
+                      ),
+                      React.createElement("p", { className: "text-xs mb-2", style: { color: 'var(--text-muted)' } }, rec.reason),
+                      React.createElement("div", { className: "flex gap-1 flex-wrap" },
+                        rec.colors.slice(0, 8).map((c, i) =>
+                          React.createElement("div", { key: i, className: "w-5 h-5 rounded-sm", style: { background: c, border: '1px solid var(--border)' } })
+                        ),
+                        rec.colors.length > 8 && React.createElement("span", { className: "text-xs", style: { color: 'var(--text-muted)' } }, "...")
+                      ),
+                      idx === 0 && React.createElement("button", {
+                        onClick: () => applyAiRecommendation(rec.palette),
+                        className: "btn btn-primary w-full mt-3 justify-center text-sm"
+                      }, "✓ 应用此调色板")
+                    )
+                  )
+                )
+              ),
+              !aiPaletteLoading && aiPaletteResult && !aiPaletteResult.success && React.createElement("div", { className: "text-center py-8" },
+                React.createElement("div", { className: "text-4xl mb-3" }, "❌"),
+                React.createElement("p", { style: { color: 'var(--text-secondary)' } }, aiPaletteResult.message || "分析失败")
+              ),
+              React.createElement("button", {
+                onClick: () => setShowAiPaletteModal(false),
+                className: "btn btn-secondary w-full justify-center mt-4"
+              }, "关闭")
+            )
+          ),
+
+          // F32: AI Style Transfer Modal
+          showStyleTransferModal && React.createElement("div", { className: "modal-overlay", onClick: () => { setShowStyleTransferModal(false); } },
+            React.createElement("div", { className: "modal-content", style: { maxWidth: '700px' }, onClick: e => e.stopPropagation() },
+              React.createElement("h3", { className: "text-xl font-bold mb-4", style: { color: 'var(--accent)' } }, "🎨 AI风格迁移"),
+              React.createElement("p", { className: "text-sm mb-4", style: { color: 'var(--text-secondary)' } }, "选择一种风格，预览效果后决定是否应用"),
+
+              // Style options
+              React.createElement("div", { className: "grid grid-cols-2 gap-3 mb-4" },
+                React.createElement("div", {
+                  key: 'retro',
+                  className: "preset-card cursor-pointer",
+                  style: selectedStyle === 'retro' ? { borderColor: 'var(--accent)', background: 'rgba(0,217,255,0.1)' } : {},
+                  onClick: () => {
+                    setSelectedStyle('retro');
+                    setStyleTransferLoading(true);
+                    setTimeout(() => {
+                      const canvas = applyStyleTransferToCanvas(origCanvasRef.current, 'retro');
+                      setStylePreviewCanvas(canvas);
+                      setStyleTransferLoading(false);
+                    }, 50);
+                  }
+                },
+                  React.createElement("div", { className: "text-lg mb-1" }, "👾 Retro 8-bit"),
+                  React.createElement("div", { className: "text-xs", style: { color: 'var(--text-muted)' } }, "NES经典调色板 + 抖动"),
+                  React.createElement("div", { className: "flex gap-1 mt-2" },
+                    ['#0f380f','#306230','#8bac0f','#9bbc0f'].map((c, i) =>
+                      React.createElement("div", { key: i, className: "w-4 h-4 rounded-sm", style: { background: c } })
+                    )
+                  )
+                ),
+                React.createElement("div", {
+                  key: 'cyberpunk',
+                  className: "preset-card cursor-pointer",
+                  style: selectedStyle === 'cyberpunk' ? { borderColor: 'var(--accent)', background: 'rgba(0,217,255,0.1)' } : {},
+                  onClick: () => {
+                    setSelectedStyle('cyberpunk');
+                    setStyleTransferLoading(true);
+                    setTimeout(() => {
+                      const canvas = applyStyleTransferToCanvas(origCanvasRef.current, 'cyberpunk');
+                      setStylePreviewCanvas(canvas);
+                      setStyleTransferLoading(false);
+                    }, 50);
+                  }
+                },
+                  React.createElement("div", { className: "text-lg mb-1" }, "🌃 Cyberpunk"),
+                  React.createElement("div", { className: "text-xs", style: { color: 'var(--text-muted)' } }, "霓虹配色 + 边缘光晕"),
+                  React.createElement("div", { className: "flex gap-1 mt-2" },
+                    ['#00ffff','#ff00ff','#ffff00','#ff0080'].map((c, i) =>
+                      React.createElement("div", { key: i, className: "w-4 h-4 rounded-sm", style: { background: c } })
+                    )
+                  )
+                ),
+                React.createElement("div", {
+                  key: 'cartoon',
+                  className: "preset-card cursor-pointer",
+                  style: selectedStyle === 'cartoon' ? { borderColor: 'var(--accent)', background: 'rgba(0,217,255,0.1)' } : {},
+                  onClick: () => {
+                    setSelectedStyle('cartoon');
+                    setStyleTransferLoading(true);
+                    setTimeout(() => {
+                      const canvas = applyStyleTransferToCanvas(origCanvasRef.current, 'cartoon');
+                      setStylePreviewCanvas(canvas);
+                      setStyleTransferLoading(false);
+                    }, 50);
+                  }
+                },
+                  React.createElement("div", { className: "text-lg mb-1" }, "🎨 Cartoon"),
+                  React.createElement("div", { className: "text-xs", style: { color: 'var(--text-muted)' } }, "卡通描边 + 扁平色块"),
+                  React.createElement("div", { className: "flex gap-1 mt-2" },
+                    ['#ff6b6b','#feca57','#48dbfb','#1dd1a1'].map((c, i) =>
+                      React.createElement("div", { key: i, className: "w-4 h-4 rounded-sm", style: { background: c } })
+                    )
+                  )
+                ),
+                React.createElement("div", {
+                  key: 'pixelArt',
+                  className: "preset-card cursor-pointer",
+                  style: selectedStyle === 'pixelArt' ? { borderColor: 'var(--accent)', background: 'rgba(0,217,255,0.1)' } : {},
+                  onClick: () => {
+                    setSelectedStyle('pixelArt');
+                    setStyleTransferLoading(true);
+                    setTimeout(() => {
+                      const canvas = applyStyleTransferToCanvas(origCanvasRef.current, 'pixelArt');
+                      setStylePreviewCanvas(canvas);
+                      setStyleTransferLoading(false);
+                    }, 50);
+                  }
+                },
+                  React.createElement("div", { className: "text-lg mb-1" }, "📷 Pixel Art"),
+                  React.createElement("div", { className: "text-xs", style: { color: 'var(--text-muted)' } }, "PICO-8调色板 + 扩散抖动"),
+                  React.createElement("div", { className: "flex gap-1 mt-2" },
+                    ['#1D2B53','#7E2553','#008751','#FF004D'].map((c, i) =>
+                      React.createElement("div", { key: i, className: "w-4 h-4 rounded-sm", style: { background: c } })
+                    )
+                  )
+                )
+              ),
+
+              // Preview area
+              React.createElement("div", { className: "mb-4" },
+                React.createElement("label", { className: "text-sm mb-2 block", style: { color: 'var(--text-secondary)' } }, "效果预览"),
+                React.createElement("div", { className: "canvas-container", style: { minHeight: '150px', background: '#0d0d1a' } },
+                  !selectedStyle && React.createElement("div", { className: "text-center", style: { color: 'var(--text-muted)' } },
+                    React.createElement("div", { className: "text-3xl mb-2" }, "👆"),
+                    React.createElement("div", null, "请选择上方风格")
+                  ),
+                  selectedStyle && styleTransferLoading && React.createElement("div", { className: "text-center", style: { color: 'var(--text-muted)' } },
+                    React.createElement("div", { className: "text-2xl animate-pulse" }, "✨"),
+                    React.createElement("div", null, "正在生成预览...")
+                  ),
+                  selectedStyle && !styleTransferLoading && stylePreviewCanvas && React.createElement("canvas", {
+                    ref: el => { if (el && stylePreviewCanvas) { const ctx = el.getContext('2d'); el.width = stylePreviewCanvas.width; el.height = stylePreviewCanvas.height; ctx.drawImage(stylePreviewCanvas, 0, 0); } },
+                    style: { maxWidth: '100%', maxHeight: '200px', imageRendering: 'pixelated' }
+                  })
+                )
+              ),
+
+              // Action buttons
+              React.createElement("div", { className: "flex gap-3" },
+                React.createElement("button", {
+                  onClick: () => {
+                    if (!selectedStyle || !stylePreviewCanvas) return;
+                    setStyleTransferLoading(true);
+
+                    // Apply style to current frame
+                    const newImgEl = new Image();
+                    newImgEl.onload = () => {
+                      setFrames(prev => {
+                        const updated = [...prev];
+                        updated[currentFrameIndex] = {
+                          ...updated[currentFrameIndex],
+                          imgEl: newImgEl,
+                          name: (updated[currentFrameIndex].name || 'frame') + ' (风格化)'
+                        };
+                        return updated;
+                      });
+                      setStyleTransferLoading(false);
+                      setShowStyleTransferModal(false);
+                    };
+                    newImgEl.src = stylePreviewCanvas.toDataURL();
+                  },
+                  disabled: !selectedStyle || !stylePreviewCanvas || styleTransferLoading,
+                  className: "btn btn-primary flex-1 justify-center"
+                }, "✓ 应用风格"),
+                React.createElement("button", {
+                  onClick: () => setShowStyleTransferModal(false),
+                  className: "btn btn-secondary flex-1 justify-center"
+                }, "取消")
+              )
+            )
           )
-        )
         )
       );
     }
