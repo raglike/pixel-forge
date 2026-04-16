@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PixelForge - 像素动画工具</title>
-  <link rel="manifest" href="/manifest.json">
+  <link rel="manifest" href="/public/manifest.json">
   <meta name="theme-color" content="#1a1a2e">
   <meta name="description" content="专业像素动画工具 - 支持多帧编辑、调色板、AI功能、批量处理">
   <script type="importmap">
@@ -24,101 +24,192 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
   <script src="./src/ai-palette.js"></script>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap');
+
+    /* CRT Scanline Overlay */
+    .crt-overlay {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 9999;
+      background: repeating-linear-gradient(
+        0deg,
+        rgba(0, 0, 0, 0.15) 0px,
+        rgba(0, 0, 0, 0.15) 1px,
+        transparent 1px,
+        transparent 2px
+      );
+    }
+    .crt-overlay::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse at center, transparent 0%, rgba(0,0,0,0.3) 100%);
+    }
+
     :root {
-      --bg-dark: #1a1a2e;
-      --bg-card: #1f4068;
-      --bg-card-hover: #264573;
-      --accent: #00d9ff;
-      --accent-glow: rgba(0, 217, 255, 0.4);
-      --accent-secondary: #e94560;
-      --accent-secondary-glow: rgba(233, 69, 96, 0.4);
-      --text-primary: #eaeaea;
-      --text-secondary: #a0aec0;
-      --text-muted: #6b7280;
-      --border: #2a2a4a;
-      --border-light: #3d3d6b;
+      --bg-dark: #0a0a0f;
+      --bg-card: #12121a;
+      --bg-card-hover: #1a1a25;
+      --accent: #39ff14;
+      --accent-glow: rgba(57, 255, 20, 0.5);
+      --accent-secondary: #bf00ff;
+      --accent-secondary-glow: rgba(191, 0, 255, 0.5);
+      --accent-tertiary: #00ffff;
+      --accent-tertiary-glow: rgba(0, 255, 255, 0.5);
+      --text-primary: #e0e0e0;
+      --text-secondary: #808080;
+      --text-muted: #505050;
+      --border: #2a2a35;
+      --border-light: #3a3a45;
+    }
+
+    /* Pixel font headings */
+    .pixel-title {
+      font-family: 'Press Start 2P', monospace;
+      text-shadow:
+        3px 3px 0 var(--accent-secondary),
+        -1px -1px 0 var(--accent-tertiary);
+      letter-spacing: 2px;
+    }
+
+    .pixel-text {
+      font-family: 'VT323', monospace;
+      font-size: 18px;
+      letter-spacing: 1px;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { 
-      background: var(--bg-dark); 
-      color: var(--text-primary); 
-      font-family: 'SF Mono', 'Fira Code', 'Consolas', system-ui, sans-serif;
+    body {
+      background: var(--bg-dark);
+      color: var(--text-primary);
+      font-family: 'VT323', 'Courier New', monospace;
+      font-size: 16px;
       min-height: 100vh;
+      image-rendering: pixelated;
     }
-    input[type="range"] { 
-      -webkit-appearance: none; 
-      background: var(--border); 
-      border-radius: 4px; 
-      height: 6px; 
-      cursor: pointer; 
-    }
-    input[type="range"]::-webkit-slider-thumb { 
-      -webkit-appearance: none; 
-      width: 16px; 
-      height: 16px; 
-      border-radius: 4px; 
-      background: var(--accent); 
+    input[type="range"] {
+      -webkit-appearance: none;
+      background: var(--border);
+      height: 8px;
       cursor: pointer;
-      box-shadow: 0 0 8px var(--accent-glow);
+      border: 2px solid var(--border-light);
     }
-    .drop-zone { 
-      border: 2px dashed var(--border-light);
-      transition: all 0.3s ease;
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      background: var(--accent);
+      cursor: pointer;
+      box-shadow: 0 0 8px var(--accent-glow), inset -2px -2px 0 rgba(0,0,0,0.3);
+      border: 2px solid var(--accent);
     }
-    .drop-zone.drag-over { 
-      border-color: var(--accent) !important; 
-      background: rgba(0, 217, 255, 0.08);
-      box-shadow: 0 0 20px var(--accent-glow);
+    .drop-zone {
+      border: 3px dashed var(--border-light);
+      transition: all 0.2s;
+      position: relative;
+    }
+    .drop-zone::before {
+      content: '';
+      position: absolute;
+      inset: -3px;
+      background: linear-gradient(45deg, var(--accent) 0%, var(--accent-secondary) 50%, var(--accent-tertiary) 100%);
+      z-index: -1;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .drop-zone.drag-over {
+      border-color: var(--accent) !important;
+      background: rgba(57, 255, 20, 0.05);
+      box-shadow: 0 0 30px var(--accent-glow), inset 0 0 20px rgba(57, 255, 20, 0.1);
+      animation: glitch-border 0.3s infinite;
+    }
+    .drop-zone.drag-over::before { opacity: 0.3; }
+    @keyframes glitch-border {
+      0%, 100% { transform: translate(0, 0); }
+      25% { transform: translate(-2px, 1px); }
+      50% { transform: translate(2px, -1px); }
+      75% { transform: translate(-1px, -1px); }
     }
     @keyframes pulse-border {
-      0%, 100% { border-color: var(--border-light); }
-      50% { border-color: var(--accent); }
+      0%, 100% { border-color: var(--border-light); box-shadow: none; }
+      50% { border-color: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
     }
     .drop-zone-idle {
-      animation: pulse-border 3s ease-in-out infinite;
+      animation: pulse-border 2s ease-in-out infinite;
     }
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: var(--bg-dark); }
-    ::-webkit-scrollbar-thumb { background: var(--border-light); border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: var(--bg-dark); border: 2px solid var(--border); }
+    ::-webkit-scrollbar-thumb { background: var(--border-light); border: 2px solid var(--border); }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent); border-color: var(--accent); }
     
     .btn {
-      padding: 10px 18px;
-      border-radius: 8px;
-      font-weight: 600;
-      font-size: 14px;
-      transition: all 0.2s ease;
+      padding: 8px 16px;
+      font-family: 'VT323', monospace;
+      font-size: 16px;
+      font-weight: bold;
+      transition: all 0.15s;
       cursor: pointer;
-      border: none;
+      border: 3px solid;
       display: inline-flex;
       align-items: center;
       gap: 6px;
+      position: relative;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .btn::before {
+      content: '';
+      position: absolute;
+      top: -1px;
+      left: -1px;
+      right: -1px;
+      bottom: -1px;
+      background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 50%);
+      pointer-events: none;
     }
     .btn-primary {
       background: var(--accent);
-      color: var(--bg-dark);
+      color: #000;
+      border-color: var(--accent);
+      box-shadow: 4px 4px 0 var(--accent-secondary), 0 0 15px var(--accent-glow);
     }
     .btn-primary:hover {
-      transform: scale(1.05);
-      box-shadow: 0 0 20px var(--accent-glow);
+      transform: translate(-2px, -2px);
+      box-shadow: 6px 6px 0 var(--accent-secondary), 0 0 25px var(--accent-glow);
+    }
+    .btn-primary:active {
+      transform: translate(2px, 2px);
+      box-shadow: 2px 2px 0 var(--accent-secondary), 0 0 10px var(--accent-glow);
     }
     .btn-secondary {
       background: var(--bg-card);
       color: var(--text-primary);
-      border: 1px solid var(--border);
+      border-color: var(--border-light);
+      box-shadow: 3px 3px 0 var(--border), 0 0 10px rgba(0,0,0,0.5);
     }
     .btn-secondary:hover {
       background: var(--bg-card-hover);
       border-color: var(--accent);
-      box-shadow: 0 0 12px var(--accent-glow);
+      color: var(--accent);
+      box-shadow: 3px 3px 0 var(--accent-secondary), 0 0 15px var(--accent-glow);
+    }
+    .btn-secondary:active {
+      transform: translate(1px, 1px);
+      box-shadow: 1px 1px 0 var(--border);
     }
     .btn-danger {
       background: var(--accent-secondary);
-      color: white;
+      color: #fff;
+      border-color: var(--accent-secondary);
+      box-shadow: 4px 4px 0 #8000aa, 0 0 15px var(--accent-secondary-glow);
     }
     .btn-danger:hover {
-      transform: scale(1.05);
-      box-shadow: 0 0 20px var(--accent-secondary-glow);
+      transform: translate(-2px, -2px);
+      box-shadow: 6px 6px 0 #8000aa, 0 0 25px var(--accent-secondary-glow);
+    }
+    .btn-danger:active {
+      transform: translate(2px, 2px);
+      box-shadow: 2px 2px 0 #8000aa, 0 0 10px var(--accent-secondary-glow);
     }
     .btn:disabled {
       opacity: 0.4;
@@ -127,95 +218,120 @@
       box-shadow: none !important;
     }
     
-    .frame-item { transition: all 0.2s ease; }
-    .frame-item.selected { 
-      box-shadow: 0 0 0 3px var(--accent), 0 0 15px var(--accent-glow);
+    .frame-item { transition: all 0.15s; }
+    .frame-item.selected {
+      box-shadow: 0 0 0 3px var(--accent), 0 0 20px var(--accent-glow);
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
     }
-    .frame-item:hover { transform: scale(1.08); }
-    
+    .frame-item:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 15px var(--accent-glow);
+    }
+
     .card {
       background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
+      border: 3px solid var(--border);
       padding: 16px;
-      transition: all 0.2s ease;
+      transition: all 0.2s;
+      position: relative;
+      box-shadow: 5px 5px 0 var(--border);
+    }
+    .card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--accent), var(--accent-secondary), var(--accent-tertiary));
+      opacity: 0;
+      transition: opacity 0.2s;
     }
     .card:hover {
-      border-color: var(--border-light);
+      border-color: var(--accent);
+      box-shadow: 5px 5px 0 var(--accent-secondary), 0 0 20px var(--accent-glow);
     }
-    
+    .card:hover::before { opacity: 1; }
+
     .title-text {
-      font-family: 'Courier New', monospace;
-      letter-spacing: 2px;
+      font-family: 'Press Start 2P', monospace;
+      letter-spacing: 3px;
     }
     
     .section-title {
       color: var(--accent);
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 1.5px;
+      font-family: 'Press Start 2P', monospace;
+      font-size: 10px;
+      letter-spacing: 2px;
       text-transform: uppercase;
       margin-bottom: 12px;
+      text-shadow: 2px 2px 0 var(--accent-secondary);
     }
-    
+
     .canvas-container {
-      background: #0d0d1a;
-      border: 1px solid var(--border);
-      border-radius: 8px;
+      background: #050508;
+      border: 3px solid var(--border);
       display: flex;
       align-items: center;
       justify-content: center;
       min-height: 200px;
       overflow: hidden;
+      box-shadow: inset 0 0 30px rgba(0,0,0,0.8);
     }
-    
+
     .progress-bar {
       background: var(--border);
-      border-radius: 4px;
-      height: 8px;
+      height: 12px;
       overflow: hidden;
+      border: 2px solid var(--border-light);
     }
     .progress-fill {
-      background: linear-gradient(90deg, var(--accent), var(--accent-secondary));
+      background: linear-gradient(90deg, var(--accent) 0%, var(--accent-tertiary) 50%, var(--accent-secondary) 100%);
       height: 100%;
-      transition: width 0.3s ease;
-      box-shadow: 0 0 10px var(--accent-glow);
+      transition: width 0.3s;
+      box-shadow: 0 0 15px var(--accent-glow);
     }
-    
+
     input[type="text"],
     input[type="number"],
     select {
       background: var(--bg-dark);
-      border: 1px solid var(--border);
-      border-radius: 6px;
+      border: 2px solid var(--border);
       color: var(--text-primary);
       padding: 8px 12px;
-      font-size: 14px;
-      transition: all 0.2s ease;
+      font-family: 'VT323', monospace;
+      font-size: 16px;
+      transition: all 0.2s;
     }
     input[type="text"]:focus,
     input[type="number"]:focus,
     select:focus {
       outline: none;
       border-color: var(--accent);
-      box-shadow: 0 0 10px var(--accent-glow);
+      box-shadow: 0 0 10px var(--accent-glow), inset 0 0 10px rgba(57, 255, 20, 0.1);
     }
-    
+
     .badge {
       background: var(--accent);
-      color: var(--bg-dark);
-      font-size: 10px;
-      font-weight: 700;
-      padding: 2px 6px;
-      border-radius: 4px;
+      color: #000;
+      font-family: 'Press Start 2P', monospace;
+      font-size: 8px;
+      padding: 4px 8px;
+      border: 2px solid #fff;
+      box-shadow: 2px 2px 0 var(--accent-secondary);
     }
     .badge-pro {
-      background: linear-gradient(135deg, #9b59b6, #8e44ad);
-      color: white;
+      background: var(--accent-secondary);
+      color: #fff;
+      border-color: #ff00ff;
+      box-shadow: 2px 2px 0 #8000aa;
     }
     .badge-enterprise {
-      background: linear-gradient(135deg, #f39c12, #e74c3c);
-      color: white;
+      background: #ff6600;
+      color: #fff;
+      border-color: #ffff00;
+      box-shadow: 2px 2px 0 #aa0000;
     }
     
     .toolbar-grid {
@@ -224,93 +340,102 @@
       gap: 10px;
       align-items: center;
     }
-    
-    .frame-list { 
-      display: flex; 
-      gap: 10px; 
-      flex-wrap: wrap; 
+
+    .frame-list {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
     }
 
     /* Color picker styles */
     .color-swatch {
       width: 28px;
       height: 28px;
-      border-radius: 4px;
       cursor: pointer;
-      border: 2px solid transparent;
-      transition: all 0.15s ease;
+      border: 3px solid var(--border);
+      transition: all 0.15s;
+      box-shadow: 2px 2px 0 var(--border);
     }
     .color-swatch:hover {
-      transform: scale(1.15);
-      border-color: white;
+      transform: scale(1.15) rotate(-5deg);
+      border-color: var(--accent);
+      box-shadow: 0 0 10px var(--accent-glow);
     }
     .color-swatch.selected {
-      border-color: var(--accent);
-      box-shadow: 0 0 8px var(--accent-glow);
+      border-color: #fff;
+      box-shadow: 0 0 10px var(--accent-glow), 3px 3px 0 var(--accent-secondary);
     }
 
     /* Tab styles */
     .tab-btn {
       padding: 8px 16px;
-      border-radius: 6px 6px 0 0;
       cursor: pointer;
-      border: none;
+      border: 3px solid transparent;
+      border-bottom: none;
       background: var(--bg-dark);
       color: var(--text-secondary);
-      font-size: 13px;
-      font-weight: 600;
+      font-family: 'VT323', monospace;
+      font-size: 16px;
+      font-weight: bold;
       transition: all 0.2s;
+      text-transform: uppercase;
+      letter-spacing: 1px;
     }
     .tab-btn.active {
       background: var(--bg-card);
       color: var(--accent);
-      border-bottom: 2px solid var(--accent);
+      border-color: var(--border-light);
+      border-bottom-color: var(--bg-card);
+      box-shadow: 0 -3px 0 var(--accent);
     }
     .tab-btn:hover:not(.active) {
-      color: var(--text-primary);
+      color: var(--accent);
+      background: var(--bg-card);
     }
 
     /* Palette item */
     .palette-item {
       padding: 8px 12px;
-      border-radius: 6px;
       cursor: pointer;
-      border: 1px solid transparent;
+      border: 2px solid transparent;
       transition: all 0.2s;
+      font-family: 'VT323', monospace;
     }
     .palette-item:hover {
       background: var(--bg-card-hover);
+      border-color: var(--accent);
     }
     .palette-item.active {
       border-color: var(--accent);
-      background: rgba(0,217,255,0.1);
+      background: rgba(57,255,20,0.1);
+      box-shadow: 0 0 10px var(--accent-glow);
     }
 
     /* Modal overlay */
     .modal-overlay {
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.7);
+      background: rgba(0,0,0,0.85);
       display: flex;
       align-items: center;
       justify-content: center;
       z-index: 1000;
+      backdrop-filter: blur(4px);
     }
     .modal-content {
       background: var(--bg-card);
-      border: 1px solid var(--border-light);
-      border-radius: 16px;
+      border: 4px solid var(--border-light);
       padding: 24px;
       max-width: 600px;
       max-height: 80vh;
       overflow-y: auto;
       width: 90%;
+      box-shadow: 8px 8px 0 var(--accent-secondary), 0 0 50px rgba(191, 0, 255, 0.3);
     }
 
     /* GIF drop zone */
     .gif-drop-zone {
-      border: 2px dashed var(--border-light);
-      border-radius: 12px;
+      border: 3px dashed var(--border-light);
       padding: 32px;
       text-align: center;
       transition: all 0.3s;
@@ -318,30 +443,53 @@
     }
     .gif-drop-zone:hover, .gif-drop-zone.drag-over {
       border-color: var(--accent-secondary);
-      background: rgba(233,69,96,0.1);
+      background: rgba(191,0,255,0.1);
+      box-shadow: 0 0 20px var(--accent-secondary-glow);
     }
 
     /* Preset card */
     .preset-card {
       background: var(--bg-dark);
-      border: 1px solid var(--border);
-      border-radius: 8px;
+      border: 3px solid var(--border);
       padding: 12px;
       cursor: pointer;
       transition: all 0.2s;
+      box-shadow: 3px 3px 0 var(--border);
     }
     .preset-card:hover {
       border-color: var(--accent);
-      background: rgba(0,217,255,0.05);
+      background: rgba(57,255,20,0.05);
+      transform: translate(-2px, -2px);
+      box-shadow: 5px 5px 0 var(--accent-secondary), 0 0 15px var(--accent-glow);
     }
     .preset-card.active {
       border-color: var(--accent);
-      background: rgba(0,217,255,0.1);
-      box-shadow: 0 0 12px var(--accent-glow);
+      background: rgba(57,255,20,0.1);
+      box-shadow: 5px 5px 0 var(--accent-secondary), 0 0 20px var(--accent-glow);
+    }
+
+    /* Pixel flicker animation for hover */
+    @keyframes pixel-flicker {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.8; }
+      75% { opacity: 0.95; }
+    }
+    .pixel-flicker:hover {
+      animation: pixel-flicker 0.3s infinite;
+    }
+
+    /* Neon glow pulse */
+    @keyframes neon-pulse {
+      0%, 100% { filter: brightness(1); }
+      50% { filter: brightness(1.3); }
+    }
+    .neon-pulse {
+      animation: neon-pulse 2s ease-in-out infinite;
     }
   </style>
 </head>
 <body>
+  <div class="crt-overlay"></div>
   <div id="root"></div>
   <script type="text/babel">
     const { useState, useRef, useCallback, useEffect } = React;
@@ -2833,7 +2981,7 @@
 
       // Version badge
       const versionBadge = version === 'pro' ? 'badge-pro' : version === 'enterprise' ? 'badge-enterprise' : 'badge';
-      const versionLabel = version === 'enterprise' ? 'Enterprise' : version === 'pro' ? 'Pro' : 'Free';
+      const versionLabel = version === 'enterprise' ? 'ENTERPRISE' : version === 'pro' ? 'PRO' : 'FREE';
 
       const currentPaletteColors = paletteMode === 'auto' ? paletteColors : 
         PALETTES[paletteMode] || 
@@ -2841,59 +2989,88 @@
 
       return React.createElement("div", { className: "min-h-screen p-4 md:p-6" },
         React.createElement("div", { className: "max-w-7xl mx-auto" },
-          // Header
-          React.createElement("div", { className: "text-center mb-6" },
-            React.createElement("h1", { className: "title-text text-3xl font-bold mb-2" }, 
+          // Header - Pixel Art Style
+          React.createElement("div", {
+            className: "text-center mb-8 pt-4 pb-6",
+            style: {
+              background: 'linear-gradient(180deg, rgba(57,255,20,0.05) 0%, transparent 100%)',
+              borderBottom: '4px solid var(--border)',
+              position: 'relative'
+            }
+          },
+            // Decorative pixel corners
+            React.createElement("div", { style: { position: 'absolute', top: 0, left: 0, width: 20, height: 20, background: 'var(--accent)', boxShadow: '0 0 10px var(--accent-glow)' }}),
+            React.createElement("div", { style: { position: 'absolute', top: 0, right: 0, width: 20, height: 20, background: 'var(--accent-secondary)', boxShadow: '0 0 10px var(--accent-secondary-glow)' }}),
+
+            React.createElement("h1", {
+              className: "pixel-title text-2xl md:text-4xl mb-3",
+              style: {
+                display: 'inline-block',
+                position: 'relative',
+                padding: '10px 30px',
+                background: 'var(--bg-dark)',
+                border: '4px solid var(--border)',
+                boxShadow: '8px 8px 0 var(--accent-secondary), 0 0 40px var(--accent-glow)'
+              }
+            },
               React.createElement("span", { style: { color: 'var(--accent)' } }, "PIXEL"),
               React.createElement("span", { style: { color: 'var(--accent-secondary)' } }, "FORGE"),
-              React.createElement("span", { 
-                className: `ml-2 badge ${versionBadge}`,
+              React.createElement("span", {
+                className: `ml-3 badge ${versionBadge} pixel-flicker`,
                 onClick: () => setShowVersionModal(true),
-                style: { cursor: 'pointer' }
+                style: { cursor: 'pointer', verticalAlign: 'middle' }
               }, versionLabel)
             ),
-            React.createElement("p", { className: "text-sm", style: { color: 'var(--text-muted)' } }, 
-              versionConf.threePreview ? "Phase 3 | 3D预览版 🚀" : versionConf.onionSkin ? "Phase 2 Pro | 洋葱皮 · 调色板 · 动画预设 · GIF导入 · Aseprite导出" : "像素动画工具 Phase 1"
+            React.createElement("p", {
+              className: "pixel-text mt-4",
+              style: { color: 'var(--text-secondary)', letterSpacing: '2px' }
+            },
+              versionConf.threePreview ? "▸ PHASE 3: 3D PREVIEW EDITION ◂" :
+              versionConf.onionSkin ? "▸ PHASE 2 PRO: ONION SKIN + PALETTE + ANIMATION + GIF + ASEPRITE ◂" :
+              "▸ PIXEL ANIMATION TOOL v1.0 ◂"
             ),
             // F42: PWA - Offline indicator
             isOffline && React.createElement("div", {
               style: {
                 display: 'inline-block',
-                marginTop: '8px',
-                padding: '4px 12px',
-                borderRadius: '20px',
-                background: 'rgba(255, 152, 0, 0.2)',
-                border: '1px solid rgba(255, 152, 0, 0.5)',
+                marginTop: '12px',
+                padding: '6px 16px',
+                background: 'rgba(255, 152, 0, 0.15)',
+                border: '3px solid rgba(255, 152, 0, 0.5)',
                 color: '#ffa500',
-                fontSize: '12px',
-                fontWeight: 'bold'
+                fontFamily: "'VT323', monospace",
+                fontSize: '16px',
+                boxShadow: '3px 3px 0 rgba(255, 152, 0, 0.3)'
               }
-            }, "📴 离线模式 - 功能正常"),
+            }, "📴 OFFLINE MODE ACTIVE"),
             // F42: PWA - Install button
             showInstallButton && React.createElement("button", {
               onClick: handleInstallApp,
-              className: "btn btn-primary ml-2",
-              style: { marginTop: '8px', padding: '4px 12px', fontSize: '12px' }
-            }, "📱 安装App")
+              className: "btn btn-primary ml-3",
+              style: { marginTop: '12px', verticalAlign: 'middle' }
+            }, "📱 INSTALL APP")
           ),
-          
-          // Tab Bar
-          versionConf.threePreview && React.createElement("div", { className: "flex gap-2 mb-4" },
+
+          // Tab Bar - Pixel Style
+          versionConf.threePreview && React.createElement("div", {
+            className: "flex gap-0 mb-6",
+            style: { borderBottom: '3px solid var(--border)' }
+          },
             React.createElement("button", {
               onClick: () => setActiveTab('main'),
-              className: `tab-btn ${activeTab === 'main' ? 'active' : ''}`,
-              style: { padding: '8px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 'bold', transition: 'all 0.2s' },
-            }, "🎨 主界面"),
+              className: `tab-btn ${activeTab === 'main' ? 'active' : ''} pixel-flicker`,
+              style: { borderRadius: '0' }
+            }, "🎨 MAIN"),
             React.createElement("button", {
               onClick: () => { setActiveTab('3dpreview'); setTimeout(() => initThreePreview(), 50); },
-              className: `tab-btn ${activeTab === '3dpreview' ? 'active' : ''}`,
-              style: { padding: '8px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 'bold', transition: 'all 0.2s' },
-            }, "🌐 3D预览"),
+              className: `tab-btn ${activeTab === '3dpreview' ? 'active' : ''} pixel-flicker`,
+              style: { borderRadius: '0' }
+            }, "🌐 3D PREVIEW"),
             versionConf.aiFeatures && React.createElement("button", {
               onClick: () => setActiveTab('batch'),
-              className: `tab-btn ${activeTab === 'batch' ? 'active' : ''}`,
-              style: { padding: '8px 20px', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: 'bold', transition: 'all 0.2s' },
-            }, "📦 批量")
+              className: `tab-btn ${activeTab === 'batch' ? 'active' : ''} pixel-flicker`,
+              style: { borderRadius: '0' }
+            }, "📦 BATCH")
           ),
           
           // Main content (show only when not in 3D preview tab or batch tab)
@@ -3087,7 +3264,7 @@
                 style: { background: 'var(--accent-secondary)' }
               }, frameGroupFilter)
             ),
-            React.createElement("div", { className: "frame-list min-h-20 p-3 rounded-lg", style: { background: 'var(--bg-dark)' } },
+            React.createElement("div", { className: "frame-list min-h-20 p-3", style: { background: 'var(--bg-dark)', border: '2px solid var(--border)' } },
               (frameGroupFilter === '全部' ? frames : frames.filter(f => f.group === frameGroupFilter)).length === 0 && React.createElement("p", { className: "text-sm w-full text-center py-6", style: { color: 'var(--text-muted)' } }, frameGroupFilter !== '全部' ? `暂无${frameGroupFilter}组帧` : "暂无帧，请点击「添加帧」开始"),
               (frameGroupFilter === '全部' ? frames : frames.filter(f => f.group === frameGroupFilter)).map((frame, index) => {
                 const actualIndex = frameGroupFilter === '全部' ? index : frames.findIndex(f => f.id === frame.id);
@@ -3098,7 +3275,7 @@
                   onDragOver: e => handleFrameDragOver(e, actualIndex),
                   onDragEnd: handleDragEnd,
                   onClick: () => { stopAnimation(); setCurrentFrameIndex(actualIndex); },
-                  className: `frame-item relative cursor-pointer rounded-lg overflow-hidden border-2 ${currentFrameIndex === actualIndex ? 'selected' : 'border-transparent'}`,
+                  className: `frame-item relative cursor-pointer overflow-hidden border-3 ${currentFrameIndex === actualIndex ? 'selected' : 'border-transparent'}`,
                   style: { width: 72, height: 72 }
                 },
                   React.createElement("img", {
@@ -3116,7 +3293,7 @@
                   }, frame.group),
                   React.createElement("button", {
                     onClick: e => { e.stopPropagation(); deleteFrame(actualIndex); },
-                    className: "absolute top-0.5 right-0.5 w-5 h-5 rounded-full text-xs flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity",
+                    className: "absolute top-0.5 right-0.5 w-5 h-5 text-xs flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity",
                     style: { background: 'var(--accent-secondary)', fontSize: 14, lineHeight: 1 }
                   }, "×")
                 );
@@ -3160,7 +3337,7 @@
                   slots.map(slot => 
                     React.createElement("div", {
                       key: slot.id,
-                      className: `flex items-center gap-2 p-2 rounded-lg mb-1 cursor-pointer transition-all ${activeSlotId === slot.id ? 'bg-accent/20 border border-accent' : 'hover:bg-white/5'}`,
+                      className: `flex items-center gap-2 p-2 mb-1 cursor-pointer transition-all ${activeSlotId === slot.id ? 'bg-accent/20 border border-accent' : 'hover:bg-white/5'}`,
                       style: { border: activeSlotId === slot.id ? '1px solid var(--accent)' : '1px solid transparent' },
                       onClick: () => {
                         if (activeSlotId !== slot.id) {
@@ -3188,7 +3365,7 @@
 
               // Drop Zone
               React.createElement("div", {
-                className: "drop-zone border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all " + (isDragging ? "drag-over" : "drop-zone-idle"),
+                className: "drop-zone border-3 border-dashed p-8 text-center cursor-pointer transition-all " + (isDragging ? "drag-over" : "drop-zone-idle"),
                 onDrop: handleDrop, onDragOver: handleDragOver, onDragLeave: handleDragLeave,
                 onClick: handleFileInputClick
               },
@@ -3212,7 +3389,7 @@
                 versionConf.aiFeatures && React.createElement("button", {
                   onClick: () => { setShowAiPaletteModal(true); analyzeWithAi(); },
                   className: "btn btn-secondary w-full mb-3 justify-center",
-                  style: { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }
+                  style: { background: 'var(--accent-tertiary)', borderColor: 'var(--accent-tertiary)' }
                 }, "🤖 AI 调色板推荐"),
                 version === 'enterprise' && React.createElement("div", { className: "mb-3" },
                   React.createElement("label", { className: "text-sm mb-1 block", style: { color: 'var(--text-secondary)' } }, "边缘强度: " + edgeStrength),
@@ -3227,7 +3404,7 @@
                   React.createElement("button", {
                     onClick: applyAiPixelation,
                     className: "btn btn-secondary w-full justify-center",
-                    style: { background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)' }
+                    style: { background: 'var(--accent)', borderColor: 'var(--accent)' }
                   }, "✨ AI像素化")
                 ),
                 version === 'enterprise' && React.createElement("div", { className: "mb-3" },
@@ -3246,7 +3423,7 @@
                       onClick: handleAiTweening,
                       disabled: aiTweenLoading || frames.length === 0,
                       className: "btn btn-secondary justify-center",
-                      style: { background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' }
+                      style: { background: 'var(--accent-secondary)', borderColor: 'var(--accent-secondary)' }
                     }, aiTweenLoading ? "处理中..." : "生成")
                   ),
                   React.createElement("label", { className: "text-sm mb-1 block", style: { color: 'var(--text-secondary)' } }, "插值强度: " + aiTweenStrength + "%"),
@@ -3269,7 +3446,7 @@
                     onClick: () => { setShowStyleTransferModal(true); setSelectedStyle(null); setStylePreviewCanvas(null); },
                     disabled: frames.length === 0,
                     className: "btn btn-secondary w-full justify-center",
-                    style: { background: 'linear-gradient(135deg, #ff6b6b 0%, #feca57 100%)' }
+                    style: { background: '#ff6600', borderColor: '#ff6600' }
                   }, "✨ 应用风格效果")
                 ),
                 // F34: Sketch to Pixel Art (Enterprise only)
@@ -3279,7 +3456,7 @@
                     onClick: () => { setShowSketchModal(true); setSketchPreview(null); },
                     disabled: frames.length === 0,
                     className: "btn btn-secondary w-full justify-center",
-                    style: { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }
+                    style: { background: 'var(--accent-tertiary)', borderColor: 'var(--accent-tertiary)' }
                   }, "✏️ 草图生像素画")
                 ),
                 // F35: Image Split / Grid Cut (Enterprise only)
@@ -3289,7 +3466,7 @@
                     onClick: () => { setShowSplitImageModal(true); },
                     disabled: frames.length === 0,
                     className: "btn btn-secondary w-full justify-center",
-                    style: { background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)' }
+                    style: { background: 'var(--accent)', borderColor: 'var(--accent)' }
                   }, "🪓 拆分图片")
                 ),
                 paletteMode === "custom" && versionConf.customPalette && React.createElement("div", { className: "mb-3" },
@@ -3625,7 +3802,7 @@
                 // Drop zone / Import button
                 React.createElement("div", {
                   className: `drop-zone drop-zone-idle ${batchQueue.length === 0 ? 'h-40' : ''}`,
-                  style: { borderRadius: '12px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: '20px', gap: '12px' },
+                  style: { display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: '20px', gap: '12px' },
                   onClick: () => batchFileInputRef.current?.click()
                 },
                   React.createElement("span", { style: { fontSize: '32px' } }, "📤"),
@@ -3757,7 +3934,7 @@
                       ) : null;
                     })() : React.createElement("div", { style: { color: 'var(--text-muted)', textAlign: 'center' } },
                       React.createElement("span", { style: { fontSize: '32px' } }, "👈"),
-                      React.createElement("p", { className: "text-xs" } }, "选择图片预览")
+                      React.createElement("p", { className: "text-xs" }, "选择图片预览")
                     ),
 
                     // Pixelated result preview
@@ -3884,7 +4061,7 @@
               ),
               React.createElement("div", { className: "mb-4" },
                 React.createElement("p", { className: "text-sm mb-2", style: { color: 'var(--text-secondary)' } }, "调色板颜色 (右键删除)"),
-                React.createElement("div", { className: "flex gap-1 flex-wrap min-h-12 p-2 rounded-lg", style: { background: 'var(--bg-dark)' } },
+                React.createElement("div", { className: "flex gap-1 flex-wrap min-h-12 p-2", style: { background: 'var(--bg-dark)', border: '2px solid var(--border)' } },
                   (customPalettes[activePalette] || []).length === 0 && 
                     React.createElement("p", { className: "text-xs w-full text-center py-4", style: { color: 'var(--text-muted)' } }, "暂无颜色，请添加"),
                   (customPalettes[activePalette] || []).map((c, i) =>
@@ -4063,7 +4240,7 @@
                   )
                 ) :
                 React.createElement("div", null,
-                  React.createElement("div", { className: "mb-4 p-4 rounded-lg", style: { background: 'var(--bg-dark)' } },
+                  React.createElement("div", { className: "mb-4 p-4", style: { background: 'var(--bg-dark)', border: '2px solid var(--border)' } },
                     React.createElement("p", { className: "text-sm", style: { color: 'var(--text-secondary)' } },
                       `原始帧数: ${gifOriginalCount} | 处理后: ${gifProcessedCount}帧`,
                       gifDuplicateDetect && gifOriginalCount !== gifProcessedCount && 
@@ -4208,7 +4385,7 @@
                 React.createElement("button", {
                   onClick: handleSketchGeneration,
                   className: "btn btn-secondary w-full justify-center",
-                  style: { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }
+                  style: { background: 'var(--accent-tertiary)', borderColor: 'var(--accent-tertiary)' }
                 }, "🔮 生成预览")
               ),
 
@@ -4547,7 +4724,7 @@
                   },
                   disabled: !currentFrame?.imgEl,
                   className: "btn btn-primary flex-1 justify-center",
-                  style: { background: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)' }
+                  style: { background: 'var(--accent)', borderColor: 'var(--accent)' }
                 }, "🪓 拆分"),
                 React.createElement("button", {
                   onClick: () => setShowSplitImageModal(false),
@@ -4617,7 +4794,7 @@
                   slots.map(slot =>
                     React.createElement("div", {
                       key: slot.id,
-                      className: "flex items-center gap-2 p-2 rounded-lg",
+                      className: "flex items-center gap-2 p-2",
                       style: { background: 'var(--bg-dark)', border: activeSlotId === slot.id ? '1px solid var(--accent)' : '1px solid var(--border)' }
                     },
                       React.createElement("span", {
@@ -4703,7 +4880,7 @@
                 (window.pixelForgePlugins || []).map(plugin =>
                   React.createElement("div", {
                     key: plugin.id,
-                    className: "flex items-center gap-3 p-3 rounded-lg mb-2",
+                    className: "flex items-center gap-3 p-3 mb-2",
                     style: { background: 'var(--bg-dark)', border: '1px solid var(--border)' }
                   },
                     // Enable/Disable toggle
@@ -4715,11 +4892,11 @@
                         className: "sr-only peer"
                       }),
                       React.createElement("div", {
-                        className: "w-9 h-5 bg-gray-600 rounded-full peer peer-checked:bg-accent peer-focus:outline-none transition-colors",
+                        className: "w-9 h-5 bg-gray-600 border-2 border-gray-500 peer peer-checked:bg-accent peer-focus:outline-none transition-colors",
                         style: { background: pluginEnabled[plugin.id] === false ? 'var(--border)' : 'var(--accent)' }
                       },
                         React.createElement("div", {
-                          className: "absolute top-0.5 left-0.5 bg-white w-4 h-4 rounded-full transition-transform",
+                          className: "absolute top-0 left-0 bg-white w-4 h-4 transition-transform",
                           style: { transform: pluginEnabled[plugin.id] === false ? 'translateX(0)' : 'translateX(16px)' }
                         })
                       )
@@ -4778,7 +4955,7 @@ window.pixelForgePlugins.push({
     // F42: Register Service Worker
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', function() {
-        navigator.serviceWorker.register('/sw.js').then(function(registration) {
+        navigator.serviceWorker.register('/public/sw.js').then(function(registration) {
           console.log('SW registered:', registration.scope);
         }).catch(function(error) {
           console.log('SW registration failed:', error);
