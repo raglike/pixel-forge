@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>PixelForge - 像素动画工具</title>
   <link rel="manifest" href="/public/manifest.json">
-  <meta name="theme-color" content="#1a1a2e">
+  <meta name="theme-color" content="#f5f5f5">
   <meta name="description" content="专业像素动画工具 - 支持多帧编辑、调色板、AI功能、批量处理">
   <script type="importmap">
   {
@@ -24,75 +24,41 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
   <script src="./src/ai-palette.js"></script>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap');
-
-    /* CRT Scanline Overlay */
-    .crt-overlay {
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      z-index: 9999;
-      background: repeating-linear-gradient(
-        0deg,
-        rgba(0, 0, 0, 0.15) 0px,
-        rgba(0, 0, 0, 0.15) 1px,
-        transparent 1px,
-        transparent 2px
-      );
-    }
-    .crt-overlay::after {
-      content: '';
-      position: absolute;
-      inset: 0;
-      background: radial-gradient(ellipse at center, transparent 0%, rgba(0,0,0,0.3) 100%);
-    }
-
+    /* Clean Admin Theme CSS */
     :root {
-      --bg-dark: #0a0a0f;
-      --bg-card: #14141e;
-      --bg-card-hover: #1c1c28;
-      --accent: #39ff14;
-      --accent-glow: rgba(57, 255, 20, 0.5);
-      --accent-secondary: #bf00ff;
-      --accent-secondary-glow: rgba(191, 0, 255, 0.5);
-      --accent-tertiary: #00ffff;
-      --accent-tertiary-glow: rgba(0, 255, 255, 0.5);
-      --text-primary: #e8e8e8;
-      --text-secondary: #b0b0b0;
-      --text-muted: #787878;
-      --border: #2a2a3a;
-      --border-light: #404055;
+      --bg-main: #f5f5f5;
+      --bg-card: #ffffff;
+      --bg-card-hover: #fafafa;
+      --bg-input: #ffffff;
+      --accent: #1890ff;
+      --accent-hover: #40a9ff;
+      --accent-light: rgba(24, 144, 255, 0.1);
+      --text-primary: #333333;
+      --text-secondary: #666666;
+      --text-muted: #999999;
+      --border: #e8e8e8;
+      --border-light: #f0f0f0;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+      --shadow-md: 0 4px 12px rgba(0,0,0,0.1);
+      --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
     }
 
-    /* Pixel font headings */
-    .pixel-title {
-      font-family: 'Press Start 2P', monospace;
-      text-shadow:
-        3px 3px 0 var(--accent-secondary),
-        -1px -1px 0 var(--accent-tertiary);
-      letter-spacing: 2px;
-    }
-
-    .pixel-text {
-      font-family: 'VT323', monospace;
-      font-size: 18px;
-      letter-spacing: 1px;
-    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      background: var(--bg-dark);
+      background: var(--bg-main);
       color: var(--text-primary);
-      font-family: 'VT323', 'Courier New', monospace;
-      font-size: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      font-size: 14px;
       min-height: 100vh;
-      image-rendering: pixelated;
+      line-height: 1.5;
     }
     input[type="range"] {
       -webkit-appearance: none;
       background: var(--border);
-      height: 8px;
+      height: 6px;
       cursor: pointer;
-      border: 2px solid var(--border-light);
+      border-radius: 3px;
+      border: none;
     }
     input[type="range"]::-webkit-slider-thumb {
       -webkit-appearance: none;
@@ -100,248 +66,180 @@
       height: 16px;
       background: var(--accent);
       cursor: pointer;
-      box-shadow: 0 0 8px var(--accent-glow), inset -2px -2px 0 rgba(0,0,0,0.3);
-      border: 2px solid var(--accent);
+      border-radius: 50%;
+      border: 2px solid #fff;
+      box-shadow: var(--shadow-md);
     }
     .drop-zone {
-      border: 3px dashed var(--border-light);
+      border: 2px dashed var(--border);
       transition: all 0.2s;
       position: relative;
     }
-    .drop-zone::before {
-      content: '';
-      position: absolute;
-      inset: -3px;
-      background: linear-gradient(45deg, var(--accent) 0%, var(--accent-secondary) 50%, var(--accent-tertiary) 100%);
-      z-index: -1;
-      opacity: 0;
-      transition: opacity 0.3s;
-    }
     .drop-zone.drag-over {
-      border-color: var(--accent) !important;
-      background: rgba(57, 255, 20, 0.05);
-      box-shadow: 0 0 30px var(--accent-glow), inset 0 0 20px rgba(57, 255, 20, 0.1);
-      animation: glitch-border 0.3s infinite;
-    }
-    .drop-zone.drag-over::before { opacity: 0.3; }
-    @keyframes glitch-border {
-      0%, 100% { transform: translate(0, 0); }
-      25% { transform: translate(-2px, 1px); }
-      50% { transform: translate(2px, -1px); }
-      75% { transform: translate(-1px, -1px); }
-    }
-    @keyframes pulse-border {
-      0%, 100% { border-color: var(--border-light); box-shadow: none; }
-      50% { border-color: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
+      border-color: var(--accent);
+      background: var(--accent-light);
     }
     .drop-zone-idle {
-      animation: pulse-border 2s ease-in-out infinite;
+      border-color: var(--border);
     }
     ::-webkit-scrollbar { width: 8px; height: 8px; }
-    ::-webkit-scrollbar-track { background: var(--bg-dark); border: 2px solid var(--border); }
-    ::-webkit-scrollbar-thumb { background: var(--border-light); border: 2px solid var(--border); }
-    ::-webkit-scrollbar-thumb:hover { background: var(--accent); border-color: var(--accent); }
-    
+    ::-webkit-scrollbar-track { background: var(--bg-main); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
     .btn {
       padding: 8px 16px;
-      font-family: 'VT323', monospace;
-      font-size: 16px;
-      font-weight: bold;
+      font-size: 14px;
+      font-weight: 500;
       transition: all 0.15s;
       cursor: pointer;
-      border: 3px solid;
+      border: 1px solid transparent;
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      position: relative;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-    }
-    .btn::before {
-      content: '';
-      position: absolute;
-      top: -1px;
-      left: -1px;
-      right: -1px;
-      bottom: -1px;
-      background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, transparent 50%);
-      pointer-events: none;
+      border-radius: 6px;
     }
     .btn-primary {
       background: var(--accent);
-      color: #000;
+      color: #fff;
       border-color: var(--accent);
-      box-shadow: 4px 4px 0 var(--accent-secondary), 0 0 15px var(--accent-glow);
     }
     .btn-primary:hover {
-      transform: translate(-2px, -2px);
-      box-shadow: 6px 6px 0 var(--accent-secondary), 0 0 25px var(--accent-glow);
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
     }
     .btn-primary:active {
-      transform: translate(2px, 2px);
-      box-shadow: 2px 2px 0 var(--accent-secondary), 0 0 10px var(--accent-glow);
+      transform: translateY(1px);
     }
     .btn-secondary {
-      background: var(--bg-card);
+      background: #fff;
       color: var(--text-primary);
-      border-color: var(--border-light);
-      box-shadow: 3px 3px 0 var(--border), 0 0 10px rgba(0,0,0,0.5);
+      border-color: var(--border);
+      box-shadow: var(--shadow-sm);
     }
     .btn-secondary:hover {
       background: var(--bg-card-hover);
       border-color: var(--accent);
       color: var(--accent);
-      box-shadow: 3px 3px 0 var(--accent-secondary), 0 0 15px var(--accent-glow);
     }
     .btn-secondary:active {
-      transform: translate(1px, 1px);
-      box-shadow: 1px 1px 0 var(--border);
+      transform: translateY(1px);
     }
     .btn-danger {
-      background: var(--accent-secondary);
+      background: #ff4d4f;
       color: #fff;
-      border-color: var(--accent-secondary);
-      box-shadow: 4px 4px 0 #8000aa, 0 0 15px var(--accent-secondary-glow);
+      border-color: #ff4d4f;
     }
     .btn-danger:hover {
-      transform: translate(-2px, -2px);
-      box-shadow: 6px 6px 0 #8000aa, 0 0 25px var(--accent-secondary-glow);
-    }
-    .btn-danger:active {
-      transform: translate(2px, 2px);
-      box-shadow: 2px 2px 0 #8000aa, 0 0 10px var(--accent-secondary-glow);
+      background: #ff7875;
+      border-color: #ff7875;
     }
     .btn:disabled {
-      opacity: 0.4;
+      opacity: 0.5;
       cursor: not-allowed;
-      transform: none !important;
-      box-shadow: none !important;
     }
-    
-    .frame-item { transition: all 0.15s; }
+
+    .frame-item { transition: all 0.15s; border-radius: 6px; overflow: hidden; }
     .frame-item.selected {
-      box-shadow: 0 0 0 3px var(--accent), 0 0 20px var(--accent-glow);
       outline: 2px solid var(--accent);
       outline-offset: 2px;
     }
     .frame-item:hover {
       transform: scale(1.05);
-      box-shadow: 0 0 15px var(--accent-glow);
     }
 
     .card {
       background: var(--bg-card);
-      border: 3px solid var(--border);
+      border: 1px solid var(--border);
       padding: 16px 20px;
       transition: all 0.2s;
       position: relative;
-      box-shadow: 5px 5px 0 var(--border);
-    }
-    .card::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      height: 3px;
-      background: linear-gradient(90deg, var(--accent), var(--accent-secondary), var(--accent-tertiary));
-      opacity: 0;
-      transition: opacity 0.2s;
+      border-radius: 8px;
+      box-shadow: var(--shadow-sm);
     }
     .card:hover {
-      border-color: var(--accent);
-      box-shadow: 5px 5px 0 var(--accent-secondary), 0 0 20px var(--accent-glow);
+      box-shadow: var(--shadow-md);
     }
-    .card:hover::before { opacity: 1; }
     .card-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       padding-bottom: 12px;
       margin-bottom: 16px;
-      border-bottom: 2px solid var(--border);
+      border-bottom: 1px solid var(--border-light);
     }
 
     .title-text {
-      font-family: 'Press Start 2P', monospace;
-      letter-spacing: 3px;
+      font-weight: 600;
+      letter-spacing: 0.5px;
     }
-    
+
     .section-title {
-      color: var(--accent);
-      font-family: 'Press Start 2P', monospace;
-      font-size: 10px;
-      letter-spacing: 2px;
-      text-transform: uppercase;
+      color: var(--text-primary);
+      font-size: 14px;
+      font-weight: 600;
       margin-bottom: 12px;
-      text-shadow: 2px 2px 0 var(--accent-secondary);
     }
 
     .canvas-container {
-      background: #050508;
-      border: 3px solid var(--border);
+      background: #fff;
+      border: 1px solid var(--border);
       display: flex;
       align-items: center;
       justify-content: center;
       min-height: 200px;
       overflow: hidden;
-      box-shadow: inset 0 0 30px rgba(0,0,0,0.8);
+      border-radius: 8px;
     }
 
     .progress-bar {
       background: var(--border);
-      height: 12px;
+      height: 8px;
       overflow: hidden;
-      border: 2px solid var(--border-light);
+      border-radius: 4px;
     }
     .progress-fill {
-      background: linear-gradient(90deg, var(--accent) 0%, var(--accent-tertiary) 50%, var(--accent-secondary) 100%);
+      background: var(--accent);
       height: 100%;
       transition: width 0.3s;
-      box-shadow: 0 0 15px var(--accent-glow);
     }
 
     input[type="text"],
     input[type="number"],
     select {
-      background: var(--bg-dark);
-      border: 2px solid var(--border);
+      background: var(--bg-input);
+      border: 1px solid var(--border);
       color: var(--text-primary);
       padding: 8px 12px;
-      font-family: 'VT323', monospace;
-      font-size: 16px;
+      font-size: 14px;
       transition: all 0.2s;
+      border-radius: 6px;
     }
     input[type="text"]:focus,
     input[type="number"]:focus,
     select:focus {
       outline: none;
       border-color: var(--accent);
-      box-shadow: 0 0 10px var(--accent-glow), inset 0 0 10px rgba(57, 255, 20, 0.1);
+      box-shadow: 0 0 0 2px var(--accent-light);
     }
 
     .badge {
       background: var(--accent);
-      color: #000;
-      font-family: 'Press Start 2P', monospace;
-      font-size: 8px;
-      padding: 4px 8px;
-      border: 2px solid #fff;
-      box-shadow: 2px 2px 0 var(--accent-secondary);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: 4px;
     }
     .badge-pro {
-      background: var(--accent-secondary);
+      background: #722ed1;
       color: #fff;
-      border-color: #ff00ff;
-      box-shadow: 2px 2px 0 #8000aa;
     }
     .badge-enterprise {
-      background: #ff6600;
+      background: #fa8c16;
       color: #fff;
-      border-color: #ffff00;
-      box-shadow: 2px 2px 0 #aa0000;
     }
-    
+
     .toolbar-grid {
       display: flex;
       flex-wrap: wrap;
@@ -356,7 +254,7 @@
     .toolbar-group + .toolbar-group {
       margin-left: 8px;
       padding-left: 16px;
-      border-left: 2px solid var(--border);
+      border-left: 1px solid var(--border-light);
     }
 
     .frame-list {
@@ -365,152 +263,117 @@
       flex-wrap: wrap;
     }
 
-    /* Color picker styles */
     .color-swatch {
       width: 28px;
       height: 28px;
       cursor: pointer;
-      border: 3px solid var(--border);
+      border: 2px solid var(--border);
       transition: all 0.15s;
-      box-shadow: 2px 2px 0 var(--border);
+      border-radius: 4px;
     }
     .color-swatch:hover {
-      transform: scale(1.15) rotate(-5deg);
+      transform: scale(1.15);
       border-color: var(--accent);
-      box-shadow: 0 0 10px var(--accent-glow);
     }
     .color-swatch.selected {
-      border-color: #fff;
-      box-shadow: 0 0 10px var(--accent-glow), 3px 3px 0 var(--accent-secondary);
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-light);
     }
 
-    /* Tab styles */
     .tab-btn {
       padding: 10px 20px;
       cursor: pointer;
-      border: 3px solid transparent;
+      border: 1px solid transparent;
       border-bottom: none;
-      background: var(--bg-dark);
+      background: transparent;
       color: var(--text-secondary);
-      font-family: 'VT323', monospace;
-      font-size: 16px;
-      font-weight: bold;
+      font-size: 14px;
+      font-weight: 500;
       transition: all 0.2s;
-      text-transform: uppercase;
-      letter-spacing: 1px;
       position: relative;
-      top: 3px;
+      top: 1px;
+      border-radius: 6px 6px 0 0;
     }
     .tab-btn.active {
       background: var(--bg-card);
       color: var(--accent);
-      border-color: var(--border-light);
-      border-bottom: 3px solid var(--bg-card);
-      box-shadow: 0 -4px 0 var(--accent), 0 0 15px var(--accent-glow);
-      font-weight: bold;
+      border-color: var(--border);
+      border-bottom: 1px solid var(--bg-card);
     }
     .tab-btn:hover:not(.active) {
       color: var(--accent);
-      background: var(--bg-card);
+      background: var(--accent-light);
     }
 
-    /* Palette item */
     .palette-item {
       padding: 8px 12px;
       cursor: pointer;
-      border: 2px solid transparent;
+      border: 1px solid transparent;
       transition: all 0.2s;
-      font-family: 'VT323', monospace;
+      border-radius: 6px;
     }
     .palette-item:hover {
       background: var(--bg-card-hover);
-      border-color: var(--accent);
+      border-color: var(--border);
     }
     .palette-item.active {
       border-color: var(--accent);
-      background: rgba(57,255,20,0.1);
-      box-shadow: 0 0 10px var(--accent-glow);
+      background: var(--accent-light);
     }
 
-    /* Modal overlay */
     .modal-overlay {
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.85);
+      background: rgba(0,0,0,0.45);
       display: flex;
       align-items: center;
       justify-content: center;
       z-index: 1000;
-      backdrop-filter: blur(4px);
     }
     .modal-content {
       background: var(--bg-card);
-      border: 4px solid var(--border-light);
+      border: 1px solid var(--border);
       padding: 24px;
       max-width: 600px;
       max-height: 80vh;
       overflow-y: auto;
       width: 90%;
-      box-shadow: 8px 8px 0 var(--accent-secondary), 0 0 50px rgba(191, 0, 255, 0.3);
+      border-radius: 8px;
+      box-shadow: var(--shadow-lg);
     }
 
-    /* GIF drop zone */
     .gif-drop-zone {
-      border: 3px dashed var(--border-light);
+      border: 2px dashed var(--border);
       padding: 32px;
       text-align: center;
       transition: all 0.3s;
       cursor: pointer;
+      border-radius: 8px;
     }
     .gif-drop-zone:hover, .gif-drop-zone.drag-over {
-      border-color: var(--accent-secondary);
-      background: rgba(191,0,255,0.1);
-      box-shadow: 0 0 20px var(--accent-secondary-glow);
+      border-color: var(--accent);
+      background: var(--accent-light);
     }
 
-    /* Preset card */
     .preset-card {
-      background: var(--bg-dark);
-      border: 3px solid var(--border);
+      background: var(--bg-card);
+      border: 1px solid var(--border);
       padding: 12px;
       cursor: pointer;
       transition: all 0.2s;
-      box-shadow: 3px 3px 0 var(--border);
+      border-radius: 8px;
     }
     .preset-card:hover {
       border-color: var(--accent);
-      background: rgba(57,255,20,0.05);
-      transform: translate(-2px, -2px);
-      box-shadow: 5px 5px 0 var(--accent-secondary), 0 0 15px var(--accent-glow);
+      background: var(--accent-light);
     }
     .preset-card.active {
       border-color: var(--accent);
-      background: rgba(57,255,20,0.1);
-      box-shadow: 5px 5px 0 var(--accent-secondary), 0 0 20px var(--accent-glow);
-    }
-
-    /* Pixel flicker animation for hover */
-    @keyframes pixel-flicker {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.8; }
-      75% { opacity: 0.95; }
-    }
-    .pixel-flicker:hover {
-      animation: pixel-flicker 0.3s infinite;
-    }
-
-    /* Neon glow pulse */
-    @keyframes neon-pulse {
-      0%, 100% { filter: brightness(1); }
-      50% { filter: brightness(1.3); }
-    }
-    .neon-pulse {
-      animation: neon-pulse 2s ease-in-out infinite;
+      background: var(--accent-light);
     }
   </style>
 </head>
 <body>
-  <div class="crt-overlay"></div>
   <div id="root"></div>
   <script type="text/babel">
     const { useState, useRef, useCallback, useEffect } = React;
@@ -3010,87 +2873,75 @@
 
       return React.createElement("div", { className: "min-h-screen p-4 md:p-6" },
         React.createElement("div", { className: "max-w-7xl mx-auto" },
-          // Header - Pixel Art Style
+          // Header - Clean Admin Style
           React.createElement("div", {
-            className: "text-center mb-8 pt-4 pb-6",
+            className: "text-center mb-6 pt-4 pb-4",
             style: {
-              background: 'linear-gradient(180deg, rgba(57,255,20,0.05) 0%, transparent 100%)',
-              borderBottom: '4px solid var(--border)',
-              position: 'relative'
+              background: 'var(--bg-card)',
+              borderBottom: '1px solid var(--border)',
+              boxShadow: 'var(--shadow-sm)'
             }
           },
-            // Decorative pixel corners
-            React.createElement("div", { style: { position: 'absolute', top: 0, left: 0, width: 20, height: 20, background: 'var(--accent)', boxShadow: '0 0 10px var(--accent-glow)' }}),
-            React.createElement("div", { style: { position: 'absolute', top: 0, right: 0, width: 20, height: 20, background: 'var(--accent-secondary)', boxShadow: '0 0 10px var(--accent-secondary-glow)' }}),
-
             React.createElement("h1", {
-              className: "pixel-title text-2xl md:text-4xl mb-3",
+              className: "text-2xl md:text-3xl mb-2",
               style: {
-                display: 'inline-block',
-                position: 'relative',
-                padding: '10px 30px',
-                background: 'var(--bg-dark)',
-                border: '4px solid var(--border)',
-                boxShadow: '8px 8px 0 var(--accent-secondary), 0 0 40px var(--accent-glow)'
+                fontWeight: '600',
+                color: 'var(--text-primary)'
               }
             },
-              React.createElement("span", { style: { color: 'var(--accent)' } }, "PIXEL"),
-              React.createElement("span", { style: { color: 'var(--accent-secondary)' } }, "FORGE"),
+              React.createElement("span", { style: { color: 'var(--accent)' } }, "Pixel"),
+              React.createElement("span", { style: { color: 'var(--text-primary)' } }, "Forge"),
               React.createElement("span", {
-                className: `ml-3 badge ${versionBadge} pixel-flicker`,
+                className: `ml-3 badge ${versionBadge}`,
                 onClick: () => setShowVersionModal(true),
                 style: { cursor: 'pointer', verticalAlign: 'middle' }
               }, versionLabel)
             ),
             React.createElement("p", {
-              className: "pixel-text mt-4",
-              style: { color: 'var(--text-secondary)', letterSpacing: '2px' }
+              className: "text-sm",
+              style: { color: 'var(--text-secondary)' }
             },
-              versionConf.threePreview ? "▸ PHASE 3: 3D PREVIEW EDITION ◂" :
-              versionConf.onionSkin ? "▸ PHASE 2 PRO: ONION SKIN + PALETTE + ANIMATION + GIF + ASEPRITE ◂" :
-              "▸ PIXEL ANIMATION TOOL v1.0 ◂"
+              versionConf.threePreview ? "3D PREVIEW EDITION" :
+              versionConf.onionSkin ? "PRO EDITION - ONION SKIN + PALETTE + ANIMATION + GIF + ASEPRITE" :
+              "像素动画工具 v1.0"
             ),
             // F42: PWA - Offline indicator
             isOffline && React.createElement("div", {
               style: {
                 display: 'inline-block',
-                marginTop: '12px',
-                padding: '6px 16px',
-                background: 'rgba(255, 152, 0, 0.15)',
-                border: '3px solid rgba(255, 152, 0, 0.5)',
-                color: '#ffa500',
-                fontFamily: "'VT323', monospace",
-                fontSize: '16px',
-                boxShadow: '3px 3px 0 rgba(255, 152, 0, 0.3)'
+                marginTop: '8px',
+                padding: '4px 12px',
+                background: '#fff7e6',
+                border: '1px solid #ffd591',
+                color: '#fa8c16',
+                fontSize: '12px',
+                borderRadius: '4px'
               }
-            }, "📴 OFFLINE MODE ACTIVE"),
+            }, "📴 OFFLINE MODE"),
             // F42: PWA - Install button
             showInstallButton && React.createElement("button", {
               onClick: handleInstallApp,
-              className: "btn btn-primary ml-3",
-              style: { marginTop: '12px', verticalAlign: 'middle' }
-            }, "📱 INSTALL APP")
+              className: "btn btn-primary ml-2",
+              style: { marginTop: '8px', verticalAlign: 'middle' }
+            }, "📱 安装应用")
           ),
 
-          // Tab Bar - Pixel Style
+          // Tab Bar - Clean Style
           versionConf.threePreview && React.createElement("div", {
             className: "flex gap-0 mb-6",
-            style: { borderBottom: '3px solid var(--border)' }
+            style: { borderBottom: '1px solid var(--border)' }
           },
             React.createElement("button", {
               onClick: () => setActiveTab('main'),
-              className: `tab-btn ${activeTab === 'main' ? 'active' : ''} pixel-flicker`,
-              style: { borderRadius: '0' }
+              className: `tab-btn ${activeTab === 'main' ? 'active' : ''}`
             }, "🎨 MAIN"),
             React.createElement("button", {
               onClick: () => { setActiveTab('3dpreview'); setTimeout(() => initThreePreview(), 50); },
-              className: `tab-btn ${activeTab === '3dpreview' ? 'active' : ''} pixel-flicker`,
-              style: { borderRadius: '0' }
+              className: `tab-btn ${activeTab === '3dpreview' ? 'active' : ''}`
             }, "🌐 3D PREVIEW"),
             versionConf.aiFeatures && React.createElement("button", {
               onClick: () => setActiveTab('batch'),
-              className: `tab-btn ${activeTab === 'batch' ? 'active' : ''} pixel-flicker`,
-              style: { borderRadius: '0' }
+              className: `tab-btn ${activeTab === 'batch' ? 'active' : ''}`
             }, "📦 BATCH")
           ),
           
