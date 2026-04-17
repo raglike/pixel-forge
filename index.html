@@ -879,11 +879,28 @@
             const data = JSON.parse(saved);
             if (data.frames && data.frames.length > 0) {
               if (confirm('检测到自动保存的项目，是否恢复？')) {
-                if (data.frames) setFrames(data.frames.map(f => {
-                  const img = new Image();
-                  img.src = f.imageDataUrl;
-                  return { id: f.id || Date.now() + Math.random(), imgEl: img, name: f.name || 'frame', duration: f.duration || 100 };
-                }));
+                if (data.frames) {
+                  // Load images with proper onload handling
+                  let loadedCount = 0;
+                  const newFrames = [];
+                  data.frames.forEach((f, i) => {
+                    const img = new Image();
+                    img.onload = () => {
+                      newFrames[i] = { id: f.id || Date.now() + Math.random(), imgEl: img, name: f.name || 'frame', duration: f.duration || 100 };
+                      loadedCount++;
+                      if (loadedCount === data.frames.length) {
+                        setFrames(newFrames.filter(Boolean));
+                      }
+                    };
+                    img.onerror = () => {
+                      loadedCount++;
+                      if (loadedCount === data.frames.length) {
+                        setFrames(newFrames.filter(Boolean));
+                      }
+                    };
+                    img.src = f.imageDataUrl;
+                  });
+                }
                 if (data.res) setRes(data.res);
                 if (data.colors) setColors(data.colors);
                 if (data.paletteMode) setPaletteMode(data.paletteMode);
@@ -1360,38 +1377,49 @@
         if (!canvas) return;
 
         const imgEl = currentFrame.imgEl;
-        // Scale to fit preview area
-        const maxW = 400, maxH = 150;
-        let w = imgEl.width, h = imgEl.height;
-        const scale = Math.min(maxW / w, maxH / h, 1);
-        w = Math.round(w * scale);
-        h = Math.round(h * scale);
+        
+        function drawSplitPreview() {
+          if (!imgEl.complete || imgEl.naturalWidth === 0) return;
+          // Scale to fit preview area
+          const maxW = 400, maxH = 150;
+          let w = imgEl.width, h = imgEl.height;
+          const scale = Math.min(maxW / w, maxH / h, 1);
+          w = Math.round(w * scale);
+          h = Math.round(h * scale);
 
-        canvas.width = w;
-        canvas.height = h;
-        const ctx = canvas.getContext('2d');
-        ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(imgEl, 0, 0, w, h);
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.imageSmoothingEnabled = false;
+          ctx.drawImage(imgEl, 0, 0, w, h);
 
-        // Draw grid overlay
-        ctx.strokeStyle = 'rgba(0, 255, 136, 0.8)';
-        ctx.lineWidth = 2;
+          // Draw grid overlay
+          ctx.strokeStyle = 'rgba(0, 255, 136, 0.8)';
+          ctx.lineWidth = 2;
 
-        const cellW = w / splitCols;
-        const cellH = h / splitRows;
+          const cellW = w / splitCols;
+          const cellH = h / splitRows;
 
-        for (let col = 1; col < splitCols; col++) {
-          ctx.beginPath();
-          ctx.moveTo(col * cellW, 0);
-          ctx.lineTo(col * cellW, h);
-          ctx.stroke();
+          for (let col = 1; col < splitCols; col++) {
+            ctx.beginPath();
+            ctx.moveTo(col * cellW, 0);
+            ctx.lineTo(col * cellW, h);
+            ctx.stroke();
+          }
+
+          for (let row = 1; row < splitRows; row++) {
+            ctx.beginPath();
+            ctx.moveTo(0, row * cellH);
+            ctx.lineTo(w, row * cellH);
+            ctx.stroke();
+          }
         }
-
-        for (let row = 1; row < splitRows; row++) {
-          ctx.beginPath();
-          ctx.moveTo(0, row * cellH);
-          ctx.lineTo(w, row * cellH);
-          ctx.stroke();
+        
+        // Wait for image to be loaded if not ready
+        if (!imgEl.complete || imgEl.naturalWidth === 0) {
+          imgEl.onload = drawSplitPreview;
+        } else {
+          drawSplitPreview();
         }
       }, [showSplitImageModal, currentFrame, splitCols, splitRows]);
 
@@ -3338,8 +3366,8 @@
                     style: { background: 'var(--accent-tertiary)', borderColor: 'var(--accent-tertiary)' }
                   }, "✏️ 草图生像素画")
                 ),
-                // F35: Image Split / Grid Cut (Enterprise only)
-                version === 'enterprise' && React.createElement("div", { className: "mb-3" },
+                // F35: Image Split / Grid Cut (Pro and above)
+                versionConf.threePreview && React.createElement("div", { className: "mb-3" },
                   React.createElement("label", { className: "text-sm mb-1 block", style: { color: 'var(--text-secondary)' } }, "🪓 图片拆分"),
                   React.createElement("button", {
                     onClick: () => { setShowSplitImageModal(true); },
