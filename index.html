@@ -4872,6 +4872,59 @@ window.pixelForgePlugins.push({
     }
 
     ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+
+    // F35: Image Split / Grid Cut helper functions
+    window.splitImageGrid = function(imgEl, splitCols, splitRows) {
+      if (!imgEl || !imgEl.complete || imgEl.naturalWidth === 0) {
+        return [];
+      }
+
+      const results = [];
+      const cellW = Math.floor(imgEl.naturalWidth / splitCols);
+      const cellH = Math.floor(imgEl.naturalHeight / splitRows);
+
+      for (let row = 0; row < splitRows; row++) {
+        for (let col = 0; col < splitCols; col++) {
+          const canvas = document.createElement('canvas');
+          canvas.width = cellW;
+          canvas.height = cellH;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(
+            imgEl,
+            col * cellW, row * cellH, cellW, cellH,
+            0, 0, cellW, cellH
+          );
+          results.push(canvas);
+        }
+      }
+
+      return results;
+    };
+
+    window.splitResultsToFrames = async function(splitResults, frameName, frameDuration) {
+      const newFrames = [];
+
+      for (let i = 0; i < splitResults.length; i++) {
+        const canvas = splitResults[i];
+        const imgEl = new Image();
+        imgEl.src = canvas.toDataURL();
+
+        await new Promise(resolve => {
+          imgEl.onload = resolve;
+          // Fallback in case onload already fired
+          if (imgEl.complete && imgEl.naturalWidth > 0) resolve();
+        });
+
+        newFrames.push({
+          id: Date.now() + Math.random() + i,
+          imgEl: imgEl,
+          name: (frameName || 'frame') + ' ' + (i + 1),
+          duration: frameDuration || 100
+        });
+      }
+
+      return newFrames;
+    };
   </script>
   <script>
     // F42: Register Service Worker
