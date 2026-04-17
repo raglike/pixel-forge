@@ -569,6 +569,7 @@
       const [threeBgColor, setThreeBgColor] = useState('#1a1a2e');
       const [threeAmbient, setThreeAmbient] = useState(0.5);
       const [threeDirectional, setThreeDirectional] = useState(1.0);
+      const [threeLightDir, setThreeLightDir] = useState({x: 1, y: 1, z: 1});
       const [threeScale, setThreeScale] = useState(1.0);
 
       // Core state
@@ -1468,7 +1469,7 @@
             const ambient = new THREE.AmbientLight(0xffffff, threeAmbient);
             scene.add(ambient);
             const directional = new THREE.DirectionalLight(0xffffff, threeDirectional);
-            directional.position.set(1, 1, 1);
+            directional.position.set(threeLightDir.x, threeLightDir.y, threeLightDir.z);
             scene.add(directional);
             
             // OrbitControls
@@ -1505,7 +1506,7 @@
             setThreeInitialized(true);
           });
         });
-      }, [frames, currentFrameIndex, res, threeBgColor, threeAmbient, threeDirectional, threeScale]);
+      }, [frames, currentFrameIndex, res, threeBgColor, threeAmbient, threeDirectional, threeLightDir, threeScale]);
 
       // Auto-init when switching to 3D tab
       useEffect(() => {
@@ -1590,6 +1591,12 @@
         if (!threeInitialized || !threeRefs.current.directional) return;
         threeRefs.current.directional.intensity = threeDirectional;
       }, [threeDirectional, threeInitialized]);
+
+      // Update directional light direction
+      useEffect(() => {
+        if (!threeInitialized || !threeRefs.current.directional) return;
+        threeRefs.current.directional.position.set(threeLightDir.x, threeLightDir.y, threeLightDir.z);
+      }, [threeLightDir, threeInitialized]);
 
       // Update sprite scale
       useEffect(() => {
@@ -3633,6 +3640,21 @@
               React.createElement("div", null,
                 React.createElement("label", { className: "text-sm block mb-1", style: { color: 'var(--text-secondary)' } }, `平行光: ${Math.round(threeDirectional * 100)}%`),
                 React.createElement("input", { type: "range", min: "0", max: "2", step: "0.05", value: threeDirectional, onChange: e => setThreeDirectional(Number(e.target.value)), style: { width: '100%' } })
+              ),
+              // Directional Light Direction X
+              React.createElement("div", null,
+                React.createElement("label", { className: "text-sm block mb-1", style: { color: 'var(--text-secondary)' } }, `光照方向 X: ${threeLightDir.x.toFixed(1)}`),
+                React.createElement("input", { type: "range", min: "-1", max: "1", step: "0.1", value: threeLightDir.x, onChange: e => setThreeLightDir(prev => ({...prev, x: Number(e.target.value)})), style: { width: '100%' } })
+              ),
+              // Directional Light Direction Y
+              React.createElement("div", null,
+                React.createElement("label", { className: "text-sm block mb-1", style: { color: 'var(--text-secondary)' } }, `光照方向 Y: ${threeLightDir.y.toFixed(1)}`),
+                React.createElement("input", { type: "range", min: "-1", max: "1", step: "0.1", value: threeLightDir.y, onChange: e => setThreeLightDir(prev => ({...prev, y: Number(e.target.value)})), style: { width: '100%' } })
+              ),
+              // Directional Light Direction Z
+              React.createElement("div", null,
+                React.createElement("label", { className: "text-sm block mb-1", style: { color: 'var(--text-secondary)' } }, `光照方向 Z: ${threeLightDir.z.toFixed(1)}`),
+                React.createElement("input", { type: "range", min: "-1", max: "1", step: "0.1", value: threeLightDir.z, onChange: e => setThreeLightDir(prev => ({...prev, z: Number(e.target.value)})), style: { width: '100%' } })
               ),
               // Sprite Scale
               React.createElement("div", null,
