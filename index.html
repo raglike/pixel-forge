@@ -1133,6 +1133,159 @@
         setAnimGroups(prev => prev.map(g => g.id === groupId ? { ...g, color: newColor } : g));
       }, []);
 
+      // P1-03: Animation State Machine
+      const [animStateMachine, setAnimStateMachine] = useState({
+        initial: 'idle',
+        transitions: [
+          { from: 'idle', to: 'walk', event: 'move', condition: null },
+          { from: 'walk', to: 'idle', event: 'stop', condition: null },
+          { from: 'walk', to: 'run', event: 'sprint', condition: null },
+          { from: 'run', to: 'walk', event: 'slow', condition: null },
+          { from: 'idle', to: 'attack', event: 'attack', condition: null },
+          { from: 'walk', to: 'attack', event: 'attack', condition: null },
+          { from: 'run', to: 'attack', event: 'attack', condition: null },
+          { from: 'attack', to: 'idle', event: 'finish', condition: null },
+          { from: 'idle', to: 'hurt', event: 'damage', condition: null },
+          { from: 'walk', to: 'hurt', event: 'damage', condition: null },
+          { from: 'run', to: 'hurt', event: 'damage', condition: null },
+          { from: 'hurt', to: 'idle', event: 'recover', condition: null },
+          { from: 'hurt', to: 'death', event: 'die', condition: null },
+          { from: 'idle', to: 'death', event: 'die', condition: null }
+        ]
+      });
+
+      const [currentAnimState, setCurrentAnimState] = useState('idle');
+      const [frameEvents, setFrameEvents] = useState({}); // { groupId_frameIdx: { type: 'sound'|'effect', value: '...' } }
+      const [showStateMachine, setShowStateMachine] = useState(false);
+
+      // P1-03: Add transition to state machine
+      const addTransition = useCallback((from, to, event) => {
+        setAnimStateMachine(prev => ({
+          ...prev,
+          transitions: [...prev.transitions, { from, to, event, condition: null }]
+        }));
+      }, []);
+
+      // P1-03: Remove transition from state machine
+      const removeTransition = useCallback((from, to, event) => {
+        setAnimStateMachine(prev => ({
+          ...prev,
+          transitions: prev.transitions.filter(t => !(t.from === from && t.to === to && t.event === event))
+        }));
+      }, []);
+
+      // P1-03: Set frame event
+      const setFrameEvent = useCallback((groupId, frameIdx, type, value) => {
+        const key = `${groupId}_${frameIdx}`;
+        setFrameEvents(prev => ({
+          ...prev,
+          [key]: { type, value }
+        }));
+      }, []);
+
+      // P1-03: Remove frame event
+      const removeFrameEvent = useCallback((groupId, frameIdx) => {
+        const key = `${groupId}_${frameIdx}`;
+        setFrameEvents(prev => {
+          const newEvents = { ...prev };
+          delete newEvents[key];
+          return newEvents;
+        });
+      }, []);
+
+      // P1-03: Trigger state transition
+      const triggerTransition = useCallback((event) => {
+        const currentState = currentAnimState;
+        const transition = animStateMachine.transitions.find(
+          t => t.from === currentState && t.event === event
+        );
+        if (transition) {
+          setCurrentAnimState(transition.to);
+          return transition.to;
+        }
+        return null;
+      }, [currentAnimState, animStateMachine]);
+
+      // P1-03: Get available transitions from current state
+      const getAvailableTransitions = useCallback((stateId) => {
+        const group = animGroups.find(g => g.id === stateId || g.name.toLowerCase() === stateId.toLowerCase());
+        if (!group) return [];
+        return animStateMachine.transitions.filter(t => t.from === group.name.toLowerCase());
+      }, [animStateMachine, animGroups]);
+
+      // P1-03: Animation blueprint preview (state flow visualization)
+      const [showBlueprint, setShowBlueprint] = useState(false);
+      const blueprintCanvasRef = useRef(null);
+
+      const drawBlueprint = useCallback(() => {
+        const canvas = blueprintCanvasRef.current;
+        if (!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const width = canvas.width;
+        const height = canvas.height;
+
+        ctx.clearRect(0, 0, width, height);
+
+        // Define node positions for each animation state
+        const nodePositions = {
+          'idle': { x: width / 2, y: 50 },
+          'walk': { x: width / 4, y: 150 },
+          'run': { x: width / 4, y: 250 },
+          'attack': { x: width * 3 / 4, y: 150 },
+          'hurt': { x: width / 2, y: 250 },
+          'death': { x: width * 3 / 4, y: 250 }
+        };
+
+        // Draw transitions as arrows
+        ctx.strokeStyle = '#666';
+        ctx.lineWidth = 1;
+        animStateMachine.transitions.forEach(t => {
+          const from = nodePositions[t.from];
+          const to = nodePositions[t.to];
+          if (from && to) {
+            ctx.beginPath();
+            ctx.moveTo(from.x, from.y + 20);
+            ctx.lineTo(to.x, to.y - 20);
+            ctx.stroke();
+
+            // Draw arrowhead
+            const angle = Math.atan2(to.y - from.y, to.x - from.x);
+            ctx.beginPath();
+            ctx.moveTo(to.x, to.y - 20);
+            ctx.lineTo(to.x - 8 * Math.cos(angle - Math.PI / 6), to.y - 20 - 8 * Math.sin(angle - Math.PI / 6));
+            ctx.lineTo(to.x - 8 * Math.cos(angle + Math.PI / 6), to.y - 20 - 8 * Math.sin(angle + Math.PI / 6));
+            ctx.fillStyle = '#666';
+            ctx.fill();
+          }
+        });
+
+        // Draw nodes for each animation state
+        const groupMap = {};
+        animGroups.forEach(g => { groupMap[g.name.toLowerCase()] = g; });
+
+        Object.entries(nodePositions).forEach(([state, pos]) => {
+          const group = groupMap[state];
+          const color = group ? group.color : '#666';
+          const isActive = currentAnimState === state;
+
+          // Draw node circle
+          ctx.beginPath();
+          ctx.arc(pos.x, pos.y, 25, 0, Math.PI * 2);
+          ctx.fillStyle = isActive ? color : '#333';
+          ctx.fill();
+          ctx.strokeStyle = color;
+          ctx.lineWidth = isActive ? 3 : 1;
+          ctx.stroke();
+
+          // Draw state label
+          ctx.fillStyle = '#fff';
+          ctx.font = '10px monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(state.toUpperCase(), pos.x, pos.y);
+        });
+      }, [animStateMachine, currentAnimState, animGroups]);
+
       // F40: Batch Processing
       const batchFileInputRef = useRef(null);
       const batchPreviewCanvasRef = useRef(null);
@@ -5224,6 +5377,111 @@
                   );
                 })()
               )
+            ),
+
+            // P1-03: State Machine Controls
+            React.createElement("div", { className: "card mt-4" },
+              React.createElement("div", { className: "flex items-center justify-between mb-3" },
+                React.createElement("p", { className: "section-title" }, "🔀 动画状态机"),
+                React.createElement("button", {
+                  onClick: () => { setShowBlueprint(!showBlueprint); setTimeout(() => drawBlueprint(), 100); },
+                  className: `btn ${showBlueprint ? 'btn-primary' : 'btn-secondary'}`,
+                  style: { fontSize: '12px', padding: '4px 8px' }
+                }, showBlueprint ? "隐藏蓝图" : "显示蓝图")
+              ),
+
+              // Current state display
+              React.createElement("div", { className: "flex items-center gap-2 mb-3" },
+                React.createElement("span", { className: "text-sm", style: { color: 'var(--text-muted)' } }, "当前状态:"),
+                (() => {
+                  const currentGroup = animGroups.find(g => g.name.toLowerCase() === currentAnimState);
+                  const color = currentGroup ? currentGroup.color : '#666';
+                  return React.createElement("span", {
+                    className: "font-bold px-2 py-1 rounded",
+                    style: { background: color, color: '#fff' }
+                  }, currentAnimState.toUpperCase());
+                })()
+              ),
+
+              // State machine blueprint canvas
+              showBlueprint && React.createElement("div", { className: "mb-3" },
+                React.createElement("canvas", {
+                  ref: blueprintCanvasRef,
+                  width: 300,
+                  height: 300,
+                  className: "w-full rounded",
+                  style: { background: '#1a1a2e', imageRendering: 'pixelated' }
+                })
+              ),
+
+              // Transition triggers
+              React.createElement("div", { className: "mb-3" },
+                React.createElement("p", { className: "text-xs mb-2", style: { color: 'var(--text-muted)' } }, "触发转换:"),
+                React.createElement("div", { className: "flex gap-1 flex-wrap" },
+                  ['move', 'stop', 'sprint', 'slow', 'attack', 'finish', 'damage', 'recover', 'die'].map(event =>
+                    React.createElement("button", {
+                      key: event,
+                      onClick: () => {
+                        const newState = triggerTransition(event);
+                        if (newState && showBlueprint) {
+                          setTimeout(() => drawBlueprint(), 50);
+                        }
+                      },
+                      className: "btn btn-secondary",
+                      style: { fontSize: '11px', padding: '4px 8px' }
+                    }, event)
+                  )
+                )
+              ),
+
+              // Frame events section
+              selectedAnimGroup && (() => {
+                const group = animGroups.find(g => g.id === selectedAnimGroup);
+                if (!group || group.frameIds.length === 0) return null;
+                return React.createElement("div", null,
+                  React.createElement("p", { className: "text-xs mb-2", style: { color: 'var(--text-muted)' } }, "帧事件触发器:"),
+                  React.createElement("div", { className: "space-y-1" },
+                    group.frameIds.map((frameId, idx) => {
+                      const eventKey = `${group.id}_${idx}`;
+                      const eventData = frameEvents[eventKey];
+                      return React.createElement("div", {
+                        key: eventKey,
+                        className: "flex items-center gap-2"
+                      },
+                        React.createElement("span", { className: "text-xs w-16", style: { color: 'var(--text-muted)' } }, `帧 ${idx + 1}:`),
+                        React.createElement("select", {
+                          className: "input flex-1 text-xs",
+                          value: eventData?.type || '',
+                          onChange: e => {
+                            if (e.target.value) {
+                              setFrameEvent(group.id, idx, e.target.value, '');
+                            } else {
+                              removeFrameEvent(group.id, idx);
+                            }
+                          }
+                        },
+                          React.createElement("option", { value: "" }, "无事件"),
+                          React.createElement("option", { value: "sound" }, "🔊 音效"),
+                          React.createElement("option", { value: "effect" }, "✨ 特效"),
+                          React.createElement("option", { value: "event" }, "📨 自定义事件")
+                        ),
+                        eventData && React.createElement("input", {
+                          type: "text",
+                          className: "input flex-1 text-xs",
+                          placeholder: eventData.type === 'sound' ? 'sound.mp3' : eventData.type === 'effect' ? 'particle_burst' : 'event_name',
+                          value: eventData.value || '',
+                          onChange: e => setFrameEvent(group.id, idx, eventData.type, e.target.value)
+                        }),
+                        eventData && React.createElement("button", {
+                          onClick: () => removeFrameEvent(group.id, idx),
+                          className: "btn btn-danger",
+                          style: { padding: '2px 6px', fontSize: '10px' }
+                        }, "×")
+                      );
+                    })
+                  )
+                );
+              })()
             )
           ),
 
