@@ -956,6 +956,183 @@
         newImg.src = pixelCanvas.toDataURL();
       }, [currentFrame, frames, res]);
 
+      // P1-02: Animation Groups Management
+      const ANIMATION_PRESETS = [
+        { id: 'idle', name: 'Idle', nameCn: '待机', color: '#4ade80', icon: '💤' },
+        { id: 'walk', name: 'Walk', nameCn: '行走', color: '#60a5fa', icon: '🚶' },
+        { id: 'run', name: 'Run', nameCn: '跑步', color: '#f97316', icon: '🏃' },
+        { id: 'attack', name: 'Attack', nameCn: '攻击', color: '#ef4444', icon: '⚔️' },
+        { id: 'hurt', name: 'Hurt', nameCn: '受伤', color: '#eab308', icon: '💥' },
+        { id: 'death', name: 'Death', nameCn: '死亡', color: '#a855f7', icon: '💀' }
+      ];
+
+      const [animGroups, setAnimGroups] = useState([]); // [{id, name, nameCn, color, icon, frameIds: []}]
+      const [selectedAnimGroup, setSelectedAnimGroup] = useState(null); // group id
+      const [showAnimPreview, setShowAnimPreview] = useState(false);
+      const animPreviewCanvasRef = useRef(null);
+      const animPreviewTimerRef = useRef(null);
+
+      // P1-02: Create a new animation group
+      const createAnimGroup = useCallback((preset) => {
+        const newGroup = {
+          id: `anim_${Date.now()}`,
+          name: preset.name,
+          nameCn: preset.nameCn,
+          color: preset.color,
+          icon: preset.icon,
+          frameIds: []
+        };
+        setAnimGroups(prev => [...prev, newGroup]);
+        return newGroup.id;
+      }, []);
+
+      // P1-02: Delete an animation group
+      const deleteAnimGroup = useCallback((groupId) => {
+        setAnimGroups(prev => prev.filter(g => g.id !== groupId));
+        if (selectedAnimGroup === groupId) {
+          setSelectedAnimGroup(null);
+        }
+      }, [selectedAnimGroup]);
+
+      // P1-02: Add frames to animation group
+      const addFramesToGroup = useCallback((groupId, frameIds) => {
+        setAnimGroups(prev => prev.map(g => {
+          if (g.id === groupId) {
+            const existingIds = new Set(g.frameIds);
+            const newIds = frameIds.filter(id => !existingIds.has(id));
+            return { ...g, frameIds: [...g.frameIds, ...newIds] };
+          }
+          return g;
+        }));
+      }, []);
+
+      // P1-02: Remove frame from animation group
+      const removeFrameFromGroup = useCallback((groupId, frameId) => {
+        setAnimGroups(prev => prev.map(g => {
+          if (g.id === groupId) {
+            return { ...g, frameIds: g.frameIds.filter(id => id !== frameId) };
+          }
+          return g;
+        }));
+      }, []);
+
+      // P1-02: Split spritesheet into animation frames
+      const splitSpritesheet = useCallback((imgEl, cols, rows) => {
+        if (!imgEl || cols <= 0 || rows <= 0) return [];
+
+        const frameWidth = Math.floor(imgEl.naturalWidth / cols);
+        const frameHeight = Math.floor(imgEl.naturalHeight / rows);
+        const newFrames = [];
+
+        for (let row = 0; row < rows; row++) {
+          for (let col = 0; col < cols; col++) {
+            const canvas = document.createElement('canvas');
+            canvas.width = frameWidth;
+            canvas.height = frameHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(
+              imgEl,
+              col * frameWidth, row * frameHeight, frameWidth, frameHeight,
+              0, 0, frameWidth, frameHeight
+            );
+
+            const frameImg = new Image();
+            frameImg.src = canvas.toDataURL();
+
+            newFrames.push({
+              id: `frame_${Date.now()}_${row}_${col}`,
+              imgEl: frameImg,
+              name: `Frame ${row * cols + col + 1}`,
+              duration: 100
+            });
+          }
+        }
+
+        return newFrames;
+      }, []);
+
+      // P1-02: Import from spritesheet dialog
+      const [showSpritesheetImport, setShowSpritesheetImport] = useState(false);
+      const [spritesheetCols, setSpritesheetCols] = useState(4);
+      const [spritesheetRows, setSpritesheetRows] = useState(4);
+      const spritesheetImportRef = useRef(null);
+
+      const handleSpritesheetImport = useCallback((e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          const img = new Image();
+          img.onload = () => {
+            const newFrames = splitSpritesheet(img, spritesheetCols, spritesheetRows);
+            setFrames(prev => [...prev, ...newFrames]);
+
+            // If there's a selected group, add the new frames to it
+            if (selectedAnimGroup) {
+              const newFrameIds = newFrames.map(f => f.id);
+              addFramesToGroup(selectedAnimGroup, newFrameIds);
+            }
+            setShowSpritesheetImport(false);
+          };
+          img.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
+      }, [spritesheetCols, spritesheetRows, selectedAnimGroup, splitSpritesheet, addFramesToGroup]);
+
+      // P1-02: Animation preview
+      const playAnimPreview = useCallback((groupId) => {
+        const group = animGroups.find(g => g.id === groupId);
+        if (!group || group.frameIds.length === 0 || !animPreviewCanvasRef.current) return;
+
+        const canvas = animPreviewCanvasRef.current;
+        const ctx = canvas.getContext('2d');
+        const frameObjs = group.frameIds.map(id => frames.find(f => f.id === id)).filter(Boolean);
+
+        if (frameObjs.length === 0) return;
+
+        let currentIdx = 0;
+        const drawFrame = () => {
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          const frame = frameObjs[currentIdx];
+          if (frame && frame.imgEl && frame.imgEl.complete) {
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(frame.imgEl, 0, 0, canvas.width, canvas.height);
+          }
+        };
+
+        drawFrame();
+        setShowAnimPreview(true);
+
+        if (animPreviewTimerRef.current) {
+          clearInterval(animPreviewTimerRef.current);
+        }
+
+        animPreviewTimerRef.current = setInterval(() => {
+          currentIdx = (currentIdx + 1) % frameObjs.length;
+          drawFrame();
+        }, 150);
+      }, [animGroups, frames]);
+
+      const stopAnimPreview = useCallback(() => {
+        if (animPreviewTimerRef.current) {
+          clearInterval(animPreviewTimerRef.current);
+          animPreviewTimerRef.current = null;
+        }
+        setShowAnimPreview(false);
+      }, []);
+
+      // P1-02: Update group name
+      const updateGroupName = useCallback((groupId, newName) => {
+        setAnimGroups(prev => prev.map(g => g.id === groupId ? { ...g, name: newName } : g));
+      }, []);
+
+      // P1-02: Update group color
+      const updateGroupColor = useCallback((groupId, newColor) => {
+        setAnimGroups(prev => prev.map(g => g.id === groupId ? { ...g, color: newColor } : g));
+      }, []);
+
       // F40: Batch Processing
       const batchFileInputRef = useRef(null);
       const batchPreviewCanvasRef = useRef(null);
@@ -3676,14 +3853,18 @@
               onClick: () => { setActiveTab('inspector'); setTimeout(() => { if (currentFrame) drawInspectorCanvas(); }, 50); },
               className: `tab-btn ${activeTab === 'inspector' ? 'active' : ''}`
             }, "🔍 PIXEL INSPECTOR"),
+            React.createElement("button", {
+              onClick: () => setActiveTab('animation'),
+              className: `tab-btn ${activeTab === 'animation' ? 'active' : ''}`
+            }, "🎬 ANIMATION GROUPS"),
             versionConf.aiFeatures && React.createElement("button", {
               onClick: () => setActiveTab('batch'),
               className: `tab-btn ${activeTab === 'batch' ? 'active' : ''}`
             }, "📦 BATCH")
           ),
 
-          // Main content (show only when not in 3D preview tab, batch tab, or inspector tab)
-          activeTab !== '3dpreview' && activeTab !== 'batch' && activeTab !== 'inspector' && React.createElement(React.Fragment, null,
+          // Main content (show only when not in 3D preview tab, batch tab, inspector tab, or animation tab)
+          activeTab !== '3dpreview' && activeTab !== 'batch' && activeTab !== 'inspector' && activeTab !== 'animation' && React.createElement(React.Fragment, null,
           
           // Toolbar
           React.createElement("div", { className: "card mb-4" },
@@ -4817,6 +4998,231 @@
                     className: "btn btn-secondary flex-1"
                   }, "📦 导出全部为ZIP")
                 )
+              )
+            )
+          ),
+
+          // ========== P1-02: ANIMATION GROUPS TAB ==========
+          activeTab === 'animation' && React.createElement("div", { className: "space-y-4" },
+            // Hidden file input for spritesheet import
+            React.createElement("input", {
+              key: 'spritesheet-input',
+              ref: spritesheetImportRef,
+              type: "file",
+              accept: "image/*",
+              style: { display: 'none' },
+              onChange: handleSpritesheetImport
+            }),
+
+            // Header with title and import button
+            React.createElement("div", { className: "flex justify-between items-center" },
+              React.createElement("h2", { className: "text-lg font-bold" }, "🎬 动画分组管理"),
+              React.createElement("button", {
+                onClick: () => setShowSpritesheetImport(true),
+                className: "btn btn-primary"
+              }, "📥 从Spritesheet导入")
+            ),
+
+            // Spritesheet Import Modal
+            showSpritesheetImport && React.createElement("div", { className: "modal-overlay", onClick: () => setShowSpritesheetImport(false) },
+              React.createElement("div", { className: "modal-content", onClick: e => e.stopPropagation() },
+                React.createElement("h3", { className: "text-lg font-bold mb-4" }, "📥 Spritesheet导入"),
+                React.createElement("div", { className: "space-y-3" },
+                  React.createElement("div", null,
+                    React.createElement("label", { className: "text-sm", style: { color: 'var(--text-muted)' } }, "列数 (cols):"),
+                    React.createElement("input", {
+                      type: "number",
+                      min: 1,
+                      max: 32,
+                      value: spritesheetCols,
+                      onChange: e => setSpritesheetCols(parseInt(e.target.value) || 1),
+                      className: "input w-full mt-1"
+                    })
+                  ),
+                  React.createElement("div", null,
+                    React.createElement("label", { className: "text-sm", style: { color: 'var(--text-muted)' } }, "行数 (rows):"),
+                    React.createElement("input", {
+                      type: "number",
+                      min: 1,
+                      max: 32,
+                      value: spritesheetRows,
+                      onChange: e => setSpritesheetRows(parseInt(e.target.value) || 1),
+                      className: "input w-full mt-1"
+                    })
+                  ),
+                  React.createElement("p", { className: "text-xs", style: { color: 'var(--text-muted)' } },
+                    `将导入 ${spritesheetCols * spritesheetRows} 帧`
+                  ),
+                  React.createElement("div", { className: "flex gap-2 mt-4" },
+                    React.createElement("button", {
+                      onClick: () => spritesheetImportRef.current?.click(),
+                      className: "btn btn-primary flex-1"
+                    }, "选择图片"),
+                    React.createElement("button", {
+                      onClick: () => setShowSpritesheetImport(false),
+                      className: "btn btn-secondary flex-1"
+                    }, "取消")
+                  )
+                )
+              )
+            ),
+
+            // Layout: Groups list + Preview panel
+            React.createElement("div", { className: "grid grid-cols-1 lg:grid-cols-3 gap-4" },
+              // Left: Animation groups list
+              React.createElement("div", { className: "lg:col-span-2 space-y-4" },
+                // Preset buttons
+                React.createElement("div", { className: "card" },
+                  React.createElement("p", { className: "section-title mb-3" }, "➕ 添加预设动画"),
+                  React.createElement("div", { className: "flex gap-2 flex-wrap" },
+                    ANIMATION_PRESETS.map(preset =>
+                      React.createElement("button", {
+                        key: preset.id,
+                        onClick: () => {
+                          const newId = createAnimGroup(preset);
+                          setSelectedAnimGroup(newId);
+                        },
+                        className: "btn btn-secondary",
+                        style: { borderColor: preset.color, borderWidth: '2px' }
+                      }, `${preset.icon} ${preset.nameCn}`)
+                    )
+                  )
+                ),
+
+                // Group list
+                animGroups.length > 0 ? React.createElement("div", { className: "space-y-3" },
+                  animGroups.map(group =>
+                    React.createElement("div", {
+                      key: group.id,
+                      className: `card ${selectedAnimGroup === group.id ? 'ring-2' : ''}`,
+                      style: { borderColor: selectedAnimGroup === group.id ? group.color : 'var(--border)' }
+                    },
+                      React.createElement("div", { className: "flex items-center justify-between mb-2" },
+                        React.createElement("div", { className: "flex items-center gap-2" },
+                          React.createElement("span", { style: { color: group.color, fontSize: '20px' } }, group.icon),
+                          React.createElement("span", { className: "font-bold" }, group.name),
+                          React.createElement("span", { className: "text-xs", style: { color: 'var(--text-muted)' } }, `(${group.nameCn})`)
+                        ),
+                        React.createElement("div", { className: "flex gap-1" },
+                          React.createElement("button", {
+                            onClick: () => playAnimPreview(group.id),
+                            className: "btn btn-secondary",
+                            style: { padding: '4px 8px', fontSize: '12px' }
+                          }, "▶ 预览"),
+                          React.createElement("button", {
+                            onClick: () => deleteAnimGroup(group.id),
+                            className: "btn btn-danger",
+                            style: { padding: '4px 8px', fontSize: '12px' }
+                          }, "🗑")
+                        )
+                      ),
+                      React.createElement("div", { className: "text-xs mb-2", style: { color: 'var(--text-muted)' } },
+                        `帧数: ${group.frameIds.length}`
+                      ),
+                      // Frame thumbnails
+                      group.frameIds.length > 0 && React.createElement("div", { className: "flex gap-1 flex-wrap" },
+                        group.frameIds.map(frameId => {
+                          const frame = frames.find(f => f.id === frameId);
+                          if (!frame) return null;
+                          return React.createElement("div", {
+                            key: frameId,
+                            className: "relative group",
+                            style: { width: '48px', height: '48px' }
+                          },
+                            React.createElement("img", {
+                              src: frame.imgEl?.src || '',
+                              className: "w-full h-full",
+                              style: { imageRendering: 'pixelated', borderRadius: '4px' }
+                            }),
+                            React.createElement("button", {
+                              onClick: () => removeFrameFromGroup(group.id, frameId),
+                              className: "absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity",
+                              style: { fontSize: '10px', lineHeight: '1' }
+                            }, "×")
+                          );
+                        })
+                      ),
+                      // Add frames dropdown
+                      React.createElement("div", { className: "mt-2" },
+                        React.createElement("select", {
+                          className: "input w-full text-sm",
+                          value: "",
+                          onChange: e => {
+                            if (e.target.value) {
+                              addFramesToGroup(group.id, [e.target.value]);
+                              e.target.value = "";
+                            }
+                          }
+                        },
+                          React.createElement("option", { value: "" }, "＋ 添加帧到分组..."),
+                          frames.filter(f => !group.frameIds.includes(f.id)).map(f =>
+                            React.createElement("option", { key: f.id, value: f.id }, f.name)
+                          )
+                        )
+                      )
+                    )
+                  )
+                ) : React.createElement("div", { className: "card text-center py-8" },
+                  React.createElement("p", { style: { color: 'var(--text-muted)' } }, "暂无动画分组，点击上方预设按钮添加")
+                )
+              ),
+
+              // Right: Preview panel
+              React.createElement("div", { className: "space-y-4" },
+                React.createElement("div", { className: "card" },
+                  React.createElement("p", { className: "section-title mb-3" }, "🎬 动画预览"),
+                  React.createElement("div", {
+                    className: "canvas-container",
+                    style: { minHeight: '200px', background: '#1a1a2e', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }
+                  },
+                    React.createElement("canvas", {
+                      ref: animPreviewCanvasRef,
+                      width: 128,
+                      height: 128,
+                      style: { imageRendering: 'pixelated', maxWidth: '100%' }
+                    })
+                  ),
+                  showAnimPreview && React.createElement("button", {
+                    onClick: stopAnimPreview,
+                    className: "btn btn-secondary w-full mt-2"
+                  }, "⏹ 停止")
+                ),
+
+                // Group details
+                selectedAnimGroup && (() => {
+                  const group = animGroups.find(g => g.id === selectedAnimGroup);
+                  if (!group) return null;
+                  return React.createElement("div", { className: "card" },
+                    React.createElement("p", { className: "section-title mb-3" }, "⚙️ 分组设置"),
+                    React.createElement("div", { className: "space-y-2" },
+                      React.createElement("div", null,
+                        React.createElement("label", { className: "text-xs", style: { color: 'var(--text-muted)' } }, "名称:"),
+                        React.createElement("input", {
+                          type: "text",
+                          value: group.name,
+                          onChange: e => updateGroupName(group.id, e.target.value),
+                          className: "input w-full mt-1"
+                        })
+                      ),
+                      React.createElement("div", null,
+                        React.createElement("label", { className: "text-xs", style: { color: 'var(--text-muted)' } }, "颜色标记:"),
+                        React.createElement("div", { className: "flex gap-1 mt-1" },
+                          ['#4ade80', '#60a5fa', '#f97316', '#ef4444', '#eab308', '#a855f7', '#ec4899', '#14b8a6'].map(color =>
+                            React.createElement("div", {
+                              key: color,
+                              onClick: () => updateGroupColor(group.id, color),
+                              className: "w-6 h-6 rounded cursor-pointer",
+                              style: {
+                                background: color,
+                                border: group.color === color ? '2px solid white' : 'none'
+                              }
+                            })
+                          )
+                        )
+                      )
+                    )
+                  );
+                })()
               )
             )
           ),
