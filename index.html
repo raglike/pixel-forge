@@ -694,6 +694,268 @@
       const [orphanThreshold, setOrphanThreshold] = useState(1); // minimum cluster size
       const [showOrphanHighlight, setShowOrphanHighlight] = useState(true);
 
+      // P1-01: Infinite Loop Map Completion
+      const [loopMode, setLoopMode] = useState('none'); // 'none' | 'horizontal' | 'vertical' | 'both'
+      const [leftEdgePixels, setLeftEdgePixels] = useState([]); // [{x, y, color}]
+      const [rightEdgePixels, setRightEdgePixels] = useState([]); // [{x, y, color}]
+      const [topEdgePixels, setTopEdgePixels] = useState([]); // [{x, y, color}]
+      const [bottomEdgePixels, setBottomEdgePixels] = useState([]); // [{x, y, color}]
+      const [edgeMatchResult, setEdgeMatchResult] = useState(null); // {leftRight, rightLeft, topBottom, bottomTop}
+      const [showEdgeHighlight, setShowEdgeHighlight] = useState(false);
+      const [edgeHighlightColor, setEdgeHighlightColor] = useState('#ff00ff'); // magenta for edges
+
+      // P1-01: Scan tile map edges for loop detection
+      const scanTileEdges = useCallback(() => {
+        if (!currentFrame) return;
+        const imgEl = currentFrame.imgEl;
+        if (!imgEl || !imgEl.complete || imgEl.naturalWidth === 0) return;
+
+        const maxW = 512, maxH = 512;
+        let w = imgEl.width, h = imgEl.height;
+        const scale = Math.min(maxW / w, maxH / h, 1);
+        w = Math.round(w * scale);
+        h = Math.round(h * scale);
+
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = w;
+        tempCanvas.height = h;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.drawImage(imgEl, 0, 0, w, h);
+
+        const pixelCanvas = document.createElement('canvas');
+        pixelCanvas.width = res;
+        pixelCanvas.height = res;
+        const pixelCtx = pixelCanvas.getContext('2d');
+        pixelCtx.imageSmoothingEnabled = false;
+        pixelCtx.drawImage(tempCanvas, 0, 0, res, res);
+
+        const imageData = pixelCtx.getImageData(0, 0, res, res);
+        const data = imageData.data;
+
+        // Helper to get pixel color key
+        const getColorKey = (x, y) => {
+          const i = (y * res + x) * 4;
+          return `${data[i]},${data[i+1]},${data[i+2]},${data[i+3]}`;
+        };
+
+        const leftEdge = [];
+        const rightEdge = [];
+        const topEdge = [];
+        const bottomEdge = [];
+
+        // Scan left edge (x = 0)
+        for (let y = 0; y < res; y++) {
+          const i = y * res * 4;
+          if (data[i + 3] > 0) { // non-transparent
+            leftEdge.push({ x: 0, y, color: getColorKey(0, y) });
+          }
+        }
+
+        // Scan right edge (x = res - 1)
+        for (let y = 0; y < res; y++) {
+          const i = (y * res + (res - 1)) * 4;
+          if (data[i + 3] > 0) {
+            rightEdge.push({ x: res - 1, y, color: getColorKey(res - 1, y) });
+          }
+        }
+
+        // Scan top edge (y = 0)
+        for (let x = 0; x < res; x++) {
+          const i = x * 4;
+          if (data[i + 3] > 0) {
+            topEdge.push({ x, y: 0, color: getColorKey(x, 0) });
+          }
+        }
+
+        // Scan bottom edge (y = res - 1)
+        for (let x = 0; x < res; x++) {
+          const i = ((res - 1) * res + x) * 4;
+          if (data[i + 3] > 0) {
+            bottomEdge.push({ x, y: res - 1, color: getColorKey(x, res - 1) });
+          }
+        }
+
+        setLeftEdgePixels(leftEdge);
+        setRightEdgePixels(rightEdge);
+        setTopEdgePixels(topEdge);
+        setBottomEdgePixels(bottomEdge);
+
+        // Calculate edge similarity scores
+        const colorDist = (c1, c2) => {
+          if (!c1 || !c2) return Infinity;
+          const [r1,g1,b1] = c1.split(',').map(Number);
+          const [r2,g2,b2] = c2.split(',').map(Number);
+          return Math.sqrt((r1-r2)**2 + (g1-g2)**2 + (b1-b2)**2);
+        };
+
+        // Match left edge with right edge (for horizontal loop)
+        let leftRightMatch = 0;
+        const leftSample = leftEdge.slice(0, 20);
+        const rightSample = rightEdge.slice(0, 20);
+        leftSample.forEach((lp, i) => {
+          const correspondingIdx = i % rightSample.length;
+          if (rightSample[correspondingIdx] && colorDist(lp.color, rightSample[correspondingIdx].color) < 50) {
+            leftRightMatch++;
+          }
+        });
+
+        let rightLeftMatch = 0;
+        rightSample.forEach((rp, i) => {
+          const correspondingIdx = i % leftSample.length;
+          if (leftSample[correspondingIdx] && colorDist(rp.color, leftSample[correspondingIdx].color) < 50) {
+            rightLeftMatch++;
+          }
+        });
+
+        // Match top edge with bottom edge (for vertical loop)
+        let topBottomMatch = 0;
+        const topSample = topEdge.slice(0, 20);
+        const bottomSample = bottomEdge.slice(0, 20);
+        topSample.forEach((tp, i) => {
+          const correspondingIdx = i % bottomSample.length;
+          if (bottomSample[correspondingIdx] && colorDist(tp.color, bottomSample[correspondingIdx].color) < 50) {
+            topBottomMatch++;
+          }
+        });
+
+        let bottomTopMatch = 0;
+        bottomSample.forEach((bp, i) => {
+          const correspondingIdx = i % topSample.length;
+          if (topSample[correspondingIdx] && colorDist(bp.color, topSample[correspondingIdx].color) < 50) {
+            bottomTopMatch++;
+          }
+        });
+
+        setEdgeMatchResult({
+          leftRight: leftRightMatch / Math.max(leftSample.length, 1),
+          rightLeft: rightLeftMatch / Math.max(rightSample.length, 1),
+          topBottom: topBottomMatch / Math.max(topSample.length, 1),
+          bottomTop: bottomTopMatch / Math.max(bottomSample.length, 1)
+        });
+
+        setShowEdgeHighlight(true);
+      }, [currentFrame, res]);
+
+      // P1-01: Complete loop map by filling missing seam areas
+      const completeLoopMap = useCallback((mode) => {
+        if (!currentFrame) return;
+        if (mode === 'none') return;
+
+        const imgEl = currentFrame.imgEl;
+        if (!imgEl || !imgEl.complete || imgEl.naturalWidth === 0) return;
+
+        const maxW = 512, maxH = 512;
+        let w = imgEl.width, h = imgEl.height;
+        const scale = Math.min(maxW / w, maxH / h, 1);
+        w = Math.round(w * scale);
+        h = Math.round(h * scale);
+
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = w;
+        tempCanvas.height = h;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.drawImage(imgEl, 0, 0, w, h);
+
+        const pixelCanvas = document.createElement('canvas');
+        pixelCanvas.width = res;
+        pixelCanvas.height = res;
+        const pixelCtx = pixelCanvas.getContext('2d');
+        pixelCtx.imageSmoothingEnabled = false;
+        pixelCtx.drawImage(tempCanvas, 0, 0, res, res);
+
+        const imageData = pixelCtx.getImageData(0, 0, res, res);
+        const data = imageData.data;
+
+        // Helper to get pixel at position
+        const getPixel = (x, y) => {
+          if (x < 0) x = 0;
+          if (x >= res) x = res - 1;
+          if (y < 0) y = 0;
+          if (y >= res) y = res - 1;
+          const i = (y * res + x) * 4;
+          return [data[i], data[i+1], data[i+2], data[i+3]];
+        };
+
+        // Blend factor (0-1, where 1 = fully copy from opposite edge)
+        const blendWidth = 3;
+
+        if (mode === 'horizontal' || mode === 'both') {
+          // Fill left edge area (copy from right edge with gradient)
+          for (let y = 0; y < res; y++) {
+            for (let bx = 0; bx < blendWidth; bx++) {
+              const factor = bx / blendWidth;
+              const srcX = res - blendWidth + bx;
+              const i = (y * res + bx) * 4;
+              const [sr, sg, sb, sa] = getPixel(srcX, y);
+              data[i] = Math.round(sr * factor);
+              data[i+1] = Math.round(sg * factor);
+              data[i+2] = Math.round(sb * factor);
+              data[i+3] = sa;
+            }
+          }
+          // Fill right edge area (copy from left edge with gradient)
+          for (let y = 0; y < res; y++) {
+            for (let bx = 0; bx < blendWidth; bx++) {
+              const factor = bx / blendWidth;
+              const srcX = bx;
+              const i = (y * res + (res - blendWidth + bx)) * 4;
+              const [sr, sg, sb, sa] = getPixel(srcX, y);
+              data[i] = Math.round(sr * factor);
+              data[i+1] = Math.round(sg * factor);
+              data[i+2] = Math.round(sb * factor);
+              data[i+3] = sa;
+            }
+          }
+        }
+
+        if (mode === 'vertical' || mode === 'both') {
+          // Fill top edge area (copy from bottom edge with gradient)
+          for (let x = 0; x < res; x++) {
+            for (let by = 0; by < blendWidth; by++) {
+              const factor = by / blendWidth;
+              const srcY = res - blendWidth + by;
+              const i = (by * res + x) * 4;
+              const [sr, sg, sb, sa] = getPixel(x, srcY);
+              data[i] = Math.round(sr * factor);
+              data[i+1] = Math.round(sg * factor);
+              data[i+2] = Math.round(sb * factor);
+              data[i+3] = sa;
+            }
+          }
+          // Fill bottom edge area (copy from top edge with gradient)
+          for (let x = 0; x < res; x++) {
+            for (let by = 0; by < blendWidth; by++) {
+              const factor = by / blendWidth;
+              const srcY = by;
+              const i = ((res - blendWidth + by) * res + x) * 4;
+              const [sr, sg, sb, sa] = getPixel(x, srcY);
+              data[i] = Math.round(sr * factor);
+              data[i+1] = Math.round(sg * factor);
+              data[i+2] = Math.round(sb * factor);
+              data[i+3] = sa;
+            }
+          }
+        }
+
+        pixelCtx.putImageData(imageData, 0, 0);
+
+        const newImg = new Image();
+        newImg.onload = () => {
+          const newFrames = frames.map(f =>
+            f.id === currentFrame.id ? { ...f, imgEl: newImg } : f
+          );
+          setFrames(newFrames);
+          setLoopMode('none');
+          // Clear edge data after completion
+          setLeftEdgePixels([]);
+          setRightEdgePixels([]);
+          setTopEdgePixels([]);
+          setBottomEdgePixels([]);
+          setEdgeMatchResult(null);
+        };
+        newImg.src = pixelCanvas.toDataURL();
+      }, [currentFrame, frames, res]);
+
       // F40: Batch Processing
       const batchFileInputRef = useRef(null);
       const batchPreviewCanvasRef = useRef(null);
@@ -1781,6 +2043,30 @@
           });
         }
 
+        // P1-01: Highlight edge pixels for loop detection
+        if (showEdgeHighlight) {
+          // Left edge - cyan
+          ctx.fillStyle = 'rgba(0, 255, 255, 0.5)';
+          leftEdgePixels.forEach(p => {
+            ctx.fillRect(p.x * zoom, p.y * zoom, zoom, zoom);
+          });
+          // Right edge - magenta
+          ctx.fillStyle = 'rgba(255, 0, 255, 0.5)';
+          rightEdgePixels.forEach(p => {
+            ctx.fillRect(p.x * zoom, p.y * zoom, zoom, zoom);
+          });
+          // Top edge - yellow
+          ctx.fillStyle = 'rgba(255, 255, 0, 0.5)';
+          topEdgePixels.forEach(p => {
+            ctx.fillRect(p.x * zoom, p.y * zoom, zoom, zoom);
+          });
+          // Bottom edge - lime
+          ctx.fillStyle = 'rgba(128, 255, 0, 0.5)';
+          bottomEdgePixels.forEach(p => {
+            ctx.fillRect(p.x * zoom, p.y * zoom, zoom, zoom);
+          });
+        }
+
         // Highlight selected pixel
         if (selectedPixel) {
           ctx.strokeStyle = '#00ff00';
@@ -1792,7 +2078,7 @@
             zoom - 2
           );
         }
-      }, [currentFrame, res, inspectorZoom, inspectorGridShow, selectedPixel, transparencyPixels, orphanPixels, showTransparencyHighlight, showOrphanHighlight]);
+      }, [currentFrame, res, inspectorZoom, inspectorGridShow, selectedPixel, transparencyPixels, orphanPixels, showTransparencyHighlight, showOrphanHighlight, showEdgeHighlight, leftEdgePixels, rightEdgePixels, topEdgePixels, bottomEdgePixels]);
 
       // P0-02: Scan for semi-transparent pixels
       const scanTransparencyPixels = useCallback(() => {
@@ -4284,6 +4570,61 @@
                       className: "btn btn-danger w-full",
                       style: { fontSize: '12px', padding: '4px 8px' }
                     }, "🗑 删除所有孤儿点")
+                  )
+                ),
+
+                // P1-01: Infinite Loop Map Completion
+                React.createElement("div", { className: "card" },
+                  React.createElement("p", { className: "section-title mb-3" }, "🔄 无限循环地图"),
+                  React.createElement("div", { className: "space-y-2" },
+                    React.createElement("button", {
+                      onClick: () => { scanTileEdges(); setTimeout(drawInspectorCanvas, 100); },
+                      disabled: !currentFrame,
+                      className: "btn btn-secondary w-full"
+                    }, "🔍 扫描边缘匹配"),
+                    edgeMatchResult && React.createElement("div", { className: "space-y-1" },
+                      React.createElement("p", { className: "text-xs", style: { color: 'var(--text-muted)' } }, "边缘匹配度:"),
+                      React.createElement("div", { className: "flex gap-1 text-xs" },
+                        React.createElement("span", { style: { color: '#00ffff' } }, "左-右:"),
+                        React.createElement("span", null, `${(edgeMatchResult.leftRight * 100).toFixed(0)}%`),
+                        React.createElement("span", { style: { color: '#ff00ff' } }, "右-左:"),
+                        React.createElement("span", null, `${(edgeMatchResult.rightLeft * 100).toFixed(0)}%`)
+                      ),
+                      React.createElement("div", { className: "flex gap-1 text-xs" },
+                        React.createElement("span", { style: { color: '#ffff00' } }, "上-下:"),
+                        React.createElement("span", null, `${(edgeMatchResult.topBottom * 100).toFixed(0)}%`),
+                        React.createElement("span", { style: { color: '#80ff00' } }, "下-上:"),
+                        React.createElement("span", null, `${(edgeMatchResult.bottomTop * 100).toFixed(0)}%`)
+                      )
+                    ),
+                    leftEdgePixels.length > 0 && React.createElement("p", { className: "text-xs", style: { color: 'var(--text-muted)' } },
+                      `边缘像素: 左${leftEdgePixels.length} 右${rightEdgePixels.length} 上${topEdgePixels.length} 下${bottomEdgePixels.length}`
+                    ),
+                    leftEdgePixels.length > 0 && React.createElement("button", {
+                      onClick: () => setShowEdgeHighlight(!showEdgeHighlight),
+                      className: `btn w-full ${showEdgeHighlight ? 'btn-primary' : 'btn-secondary'}`,
+                      style: { fontSize: '12px', padding: '4px 8px' }
+                    }, showEdgeHighlight ? "👁 隐藏边缘" : "👁 显示边缘"),
+                    edgeMatchResult && (edgeMatchResult.leftRight > 0.3 || edgeMatchResult.topBottom > 0.3) && React.createElement("div", { className: "space-y-1" },
+                      React.createElement("p", { className: "text-xs", style: { color: 'var(--text-muted)' } }, "循环模式:"),
+                      React.createElement("div", { className: "flex gap-1 flex-wrap" },
+                        edgeMatchResult.leftRight > 0.3 && React.createElement("button", {
+                          onClick: () => { setLoopMode('horizontal'); completeLoopMap('horizontal'); setTimeout(drawInspectorCanvas, 100); },
+                          className: "btn btn-secondary",
+                          style: { fontSize: '11px', padding: '4px 8px' }
+                        }, "↔ 水平循环"),
+                        edgeMatchResult.topBottom > 0.3 && React.createElement("button", {
+                          onClick: () => { setLoopMode('vertical'); completeLoopMap('vertical'); setTimeout(drawInspectorCanvas, 100); },
+                          className: "btn btn-secondary",
+                          style: { fontSize: '11px', padding: '4px 8px' }
+                        }, "↕ 垂直循环"),
+                        edgeMatchResult.leftRight > 0.3 && edgeMatchResult.topBottom > 0.3 && React.createElement("button", {
+                          onClick: () => { setLoopMode('both'); completeLoopMap('both'); setTimeout(drawInspectorCanvas, 100); },
+                          className: "btn btn-primary",
+                          style: { fontSize: '11px', padding: '4px 8px' }
+                        }, "↔↕ 双向循环")
+                      )
+                    )
                   )
                 )
               )
