@@ -23,6 +23,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
   <script src="./src/ai-palette.js"></script>
+  <script src="./src/xbr.js"></script>
   <style>
     /* Clean Admin Theme CSS */
     :root {
@@ -577,6 +578,7 @@
       const [currentFrameIndex, setCurrentFrameIndex] = useState(0);
       const [res, setRes] = useState(64);
       const [colors, setColors] = useState(16);
+      const [scalingAlgorithm, setScalingAlgorithm] = useState('bilinear'); // 'bilinear' | 'xbr-2x' | 'xbr-3x' | 'xbr-4x'
       const [paletteMode, setPaletteMode] = useState("auto");
       const [palette, setPalette] = useState([]);
       const [paletteColors, setPaletteColors] = useState([]);
@@ -2922,9 +2924,36 @@
         }
         pctx.putImageData(pixelData, 0, 0);
 
+        // F45: Apply xBR scaling if selected (edge-enhanced upscaling)
+        if (scalingAlgorithm.startsWith('xbr-')) {
+          const scale = parseInt(scalingAlgorithm.split('-')[1], 10);
+          try {
+            // Get pixelated ImageData (pw x ph)
+            const xbrImageData = pctx.getImageData(0, 0, pw, ph);
+            // xBR outputs scale*N x scale*N pixels
+            const scaledW = pw * scale;
+            const scaledH = ph * scale;
+            // Create offscreen canvas for xBR output
+            const xbrCanvas = document.createElement('canvas');
+            xbrCanvas.width = scaledW;
+            xbrCanvas.height = scaledH;
+            const xbrCtx = xbrCanvas.getContext('2d');
+            const xbrScaled = xbrScale(xbrImageData, scale);
+            xbrCtx.putImageData(xbrScaled, 0, 0);
+            // Reset preview canvas to target display size
+            pc.width = pw; pc.height = ph;
+            // Draw xBR result scaled to fit the preview canvas
+            pctx.imageSmoothingEnabled = false;
+            pctx.clearRect(0, 0, pw, ph);
+            pctx.drawImage(xbrCanvas, 0, 0, pw, ph);
+          } catch (err) {
+            console.warn('xBR scaling failed:', err);
+          }
+        }
+
         // F45: Draw background layer (below sprite)
         drawBackground(pctx, pw, ph);
-      }, [currentFrame, res, colors, palette, paletteMode, drawBackground]);
+      }, [currentFrame, res, colors, palette, paletteMode, scalingAlgorithm, drawBackground]);
 
       // F33: AI Smart Palette Recommendation
       const analyzeWithAi = useCallback(() => {
@@ -3097,7 +3126,7 @@
         }
       }, [frames, aiTweenTargetFrames, aiTweenStrength, versionConf.maxFrames]);
 
-      const processFrameToCanvas = (frame, canvas) => {
+      const processFrameToCanvas = (frame, canvas, applyXbr) => {
         const imgEl = frame.imgEl;
         const maxW = 512, maxH = 512;
         let w = imgEl.width, h = imgEl.height;
@@ -3115,13 +3144,16 @@
         const currentPalette = paletteMode === "auto" ? autoPalette : palette;
 
         const pw = res, ph = res;
-        canvas.width = pw;
-        canvas.height = ph;
-        const pctx = canvas.getContext('2d');
-        pctx.imageSmoothingEnabled = false;
-        pctx.drawImage(tempCanvas, 0, 0, pw, ph);
 
-        const pixelData = pctx.getImageData(0, 0, pw, ph);
+        // Pixelate at target resolution
+        const pixelCanvas = document.createElement('canvas');
+        pixelCanvas.width = pw;
+        pixelCanvas.height = ph;
+        const pixelCtx = pixelCanvas.getContext('2d');
+        pixelCtx.imageSmoothingEnabled = false;
+        pixelCtx.drawImage(tempCanvas, 0, 0, pw, ph);
+
+        const pixelData = pixelCtx.getImageData(0, 0, pw, ph);
         const data = pixelData.data;
         for (let i = 0; i < data.length; i += 4) {
           const [r,g,b] = [data[i],data[i+1],data[i+2]];
@@ -3132,7 +3164,32 @@
           }
           data[i]=best[0]; data[i+1]=best[1]; data[i+2]=best[2];
         }
-        pctx.putImageData(pixelData, 0, 0);
+        pixelCtx.putImageData(pixelData, 0, 0);
+
+        // Apply xBR if requested (for export)
+        if (applyXbr && scalingAlgorithm.startsWith('xbr-')) {
+          const xbrScaleFactor = parseInt(scalingAlgorithm.split('-')[1], 10);
+          const scaledW = pw * xbrScaleFactor;
+          const scaledH = ph * xbrScaleFactor;
+          canvas.width = scaledW;
+          canvas.height = scaledH;
+          const ctx = canvas.getContext('2d');
+          ctx.imageSmoothingEnabled = false;
+          const xbrImageData = pixelCtx.getImageData(0, 0, pw, ph);
+          const xbrResult = xbrScale(xbrImageData, xbrScaleFactor);
+          const xbrCanvas = document.createElement('canvas');
+          xbrCanvas.width = scaledW;
+          xbrCanvas.height = scaledH;
+          const xbrCtx = xbrCanvas.getContext('2d');
+          xbrCtx.putImageData(xbrResult, 0, 0);
+          ctx.drawImage(xbrCanvas, 0, 0, scaledW, scaledH);
+        } else {
+          canvas.width = pw;
+          canvas.height = ph;
+          const ctx = canvas.getContext('2d');
+          ctx.imageSmoothingEnabled = false;
+          ctx.drawImage(pixelCanvas, 0, 0, pw, ph);
+        }
       };
 
       // Draw onion skin frames
@@ -3334,11 +3391,16 @@
         setIsExporting(true);
         setExportProgress(0);
 
+        const xbrEnabled = scalingAlgorithm.startsWith('xbr-');
+        const gifScale = xbrEnabled ? parseInt(scalingAlgorithm.split('-')[1], 10) : 1;
+        const gifW = res * (xbrEnabled ? gifScale : 1);
+        const gifH = res * (xbrEnabled ? gifScale : 1);
+
         const gif = new GIF({
           workers: 2,
           quality: 10,
-          width: res,
-          height: res,
+          width: gifW,
+          height: gifH,
           workerScript: 'https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js'
         });
 
@@ -3348,10 +3410,18 @@
         const tempCtx = tempCanvas.getContext('2d');
 
         frames.forEach((frame, index) => {
-          processFrameToCanvas(frame, tempCanvas);
-          // F45: Draw background layer (below sprite)
+          processFrameToCanvas(frame, tempCanvas, false); // Don't apply xbr inside processFrameToCanvas
           drawBackground(tempCtx, res, res);
-          gif.addFrame(tempCtx, { copy: true, delay: frame.duration });
+
+          // F45: Apply xBR for export if selected
+          if (xbrEnabled) {
+            const frameCanvas = document.createElement('canvas');
+            processFrameToCanvas(frame, frameCanvas, true); // apply xbr
+            drawBackground(frameCanvas.getContext('2d'), frameCanvas.width, frameCanvas.height);
+            gif.addFrame(frameCanvas, { copy: true, delay: frame.duration });
+          } else {
+            gif.addFrame(tempCtx, { copy: true, delay: frame.duration });
+          }
           setExportProgress(Math.round((index + 1) / frames.length * 50));
         });
 
@@ -3374,17 +3444,15 @@
         setExportProgress(0);
 
         const zip = new JSZip();
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = res;
-        tempCanvas.height = res;
-        const tempCtx = tempCanvas.getContext('2d');
+        const xbrEnabled = scalingAlgorithm.startsWith('xbr-');
+        const xbrScale = xbrEnabled ? parseInt(scalingAlgorithm.split('-')[1], 10) : 1;
 
         for (let i = 0; i < frames.length; i++) {
-          processFrameToCanvas(frames[i], tempCanvas);
-          // F45: Draw background layer (below sprite)
-          drawBackground(tempCtx, res, res);
+          const frameCanvas = document.createElement('canvas');
+          processFrameToCanvas(frames[i], frameCanvas, xbrEnabled);
+          drawBackground(frameCanvas.getContext('2d'), frameCanvas.width, frameCanvas.height);
 
-          const dataUrl = tempCanvas.toDataURL('image/png');
+          const dataUrl = frameCanvas.toDataURL('image/png');
           const base64 = dataUrl.split(',')[1];
           
           let filename = frameNaming
@@ -3409,23 +3477,23 @@
 
         const cols = Math.min(spriteCols, frames.length);
         const rows = Math.ceil(frames.length / cols);
+        const xbrEnabled = scalingAlgorithm.startsWith('xbr-');
+        const xbrScale = xbrEnabled ? parseInt(scalingAlgorithm.split('-')[1], 10) : 1;
+        const frameSize = res * xbrScale;
         
         const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = res * cols;
-        tempCanvas.height = res * rows;
+        tempCanvas.width = frameSize * cols;
+        tempCanvas.height = frameSize * rows;
         const tempCtx = tempCanvas.getContext('2d');
 
         for (let i = 0; i < frames.length; i++) {
           const col = i % cols;
           const row = Math.floor(i / cols);
           const frameCanvas = document.createElement('canvas');
-          frameCanvas.width = res;
-          frameCanvas.height = res;
-          processFrameToCanvas(frames[i], frameCanvas);
-          // F45: Draw background layer (below sprite)
-          drawBackground(frameCanvas.getContext('2d'), res, res);
+          processFrameToCanvas(frames[i], frameCanvas, xbrEnabled);
+          drawBackground(frameCanvas.getContext('2d'), frameCanvas.width, frameCanvas.height);
           tempCtx.imageSmoothingEnabled = false;
-          tempCtx.drawImage(frameCanvas, col * res, row * res);
+          tempCtx.drawImage(frameCanvas, col * frameSize, row * frameSize);
           setExportProgress(Math.round((i + 1) / frames.length * 80));
         }
 
@@ -3487,10 +3555,13 @@
 
         const cols = Math.min(spriteCols, frames.length);
         const rows = Math.ceil(frames.length / cols);
+        const xbrEnabled = scalingAlgorithm.startsWith('xbr-');
+        const xbrScale = xbrEnabled ? parseInt(scalingAlgorithm.split('-')[1], 10) : 1;
+        const frameSize = res * xbrScale;
 
         const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = res * cols;
-        tempCanvas.height = res * rows;
+        tempCanvas.width = frameSize * cols;
+        tempCanvas.height = frameSize * rows;
         const tempCtx = tempCanvas.getContext('2d');
 
         const framesData = [];
@@ -3500,20 +3571,17 @@
           const row = Math.floor(i / cols);
 
           const frameCanvas = document.createElement('canvas');
-          frameCanvas.width = res;
-          frameCanvas.height = res;
-          processFrameToCanvas(frames[i], frameCanvas);
-          // F45: Draw background layer (below sprite)
-          drawBackground(frameCanvas.getContext('2d'), res, res);
+          processFrameToCanvas(frames[i], frameCanvas, xbrEnabled);
+          drawBackground(frameCanvas.getContext('2d'), frameCanvas.width, frameCanvas.height);
           tempCtx.imageSmoothingEnabled = false;
-          tempCtx.drawImage(frameCanvas, col * res, row * res);
+          tempCtx.drawImage(frameCanvas, col * frameSize, row * frameSize);
 
           framesData.push({
             index: i,
-            x: col * res,
-            y: row * res,
-            width: res,
-            height: res,
+            x: col * frameSize,
+            y: row * frameSize,
+            width: frameSize,
+            height: frameSize,
             delay: frames[i].duration
           });
 
@@ -3530,8 +3598,8 @@
 
         const jsonData = {
           frames: framesData,
-          frameWidth: res,
-          frameHeight: res,
+          frameWidth: frameSize,
+          frameHeight: frameSize,
           frameCount: frames.length
         };
 
@@ -4700,7 +4768,7 @@
                 )
               ),
               currentFrame && React.createElement("div", { className: "card" },
-                React.createElement("div", { className: "grid grid-cols-1 sm:grid-cols-2 gap-6" },
+                React.createElement("div", { className: "grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4" },
                   React.createElement("div", null,
                     React.createElement("label", { className: "text-sm mb-2 block", style: { color: 'var(--text-secondary)' } }, 
                       "分辨率 ", React.createElement("span", { className: "badge" }, res+"×"+res)
@@ -4714,6 +4782,21 @@
                     ),
                     React.createElement("input", { type: "range", min: 2, max: paletteMode==="GameBoy"?4:paletteMode==="灰度"?16:256, value: colors, onChange: e=>setColors(Number(e.target.value)), className: "w-full" }),
                     React.createElement("div", { className: "flex justify-between text-xs mt-1", style: { color: 'var(--text-muted)' } }, React.createElement("span", null, "2"), React.createElement("span", null, "256"))
+                  ),
+                  React.createElement("div", null,
+                    React.createElement("label", { className: "text-sm mb-2 block", style: { color: 'var(--text-secondary)' } }, 
+                      "放大算法 ", React.createElement("span", { className: "badge" }, scalingAlgorithm.startsWith('xbr') ? scalingAlgorithm : 'bilinear')
+                    ),
+                    React.createElement("select", {
+                      className: "w-full text-sm",
+                      value: scalingAlgorithm,
+                      onChange: e => setScalingAlgorithm(e.target.value)
+                    },
+                      React.createElement("option", { value: "bilinear" }, "Bilinear (平滑)"),
+                      React.createElement("option", { value: "xbr-2x" }, "xBR 2x (锐利)"),
+                      React.createElement("option", { value: "xbr-3x" }, "xBR 3x (锐利)"),
+                      React.createElement("option", { value: "xbr-4x" }, "xBR 4x (最锐利)")
+                    )
                   )
                 )
               ),
