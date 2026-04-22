@@ -25,6 +25,8 @@
   <script src="./src/ai-palette.js"></script>
   <script src="./src/xbr-vendor.js"></script>
   <script src="./src/xbr.js"></script>
+  <script src="./src/palettes.js"></script>
+  <script src="./src/templates.js"></script>
   <style>
     /* Clean Admin Theme CSS */
     :root {
@@ -608,6 +610,11 @@
       const [activePalette, setActivePalette] = useState(null);
       const [paletteTab, setPaletteTab] = useState('builtin');
       const [editingPaletteName, setEditingPaletteName] = useState('');
+      
+      // M1-1: Palette Library Search & Filter
+      const [paletteSearchQuery, setPaletteSearchQuery] = useState('');
+      const [paletteCategoryFilter, setPaletteCategoryFilter] = useState('all');
+      const [showPaletteLibrary, setShowPaletteLibrary] = useState(false);
       const [showPaletteEditor, setShowPaletteEditor] = useState(false);
       const [eyedropperActive, setEyedropperActive] = useState(false);
 
@@ -621,6 +628,10 @@
       const [showSavePresetModal, setShowSavePresetModal] = useState(false);
       const [newPresetName, setNewPresetName] = useState('');
       const [presetPreviewPlaying, setPresetPreviewPlaying] = useState(false);
+
+      // M1-2: Animation Template Library
+      const [templateCategory, setTemplateCategory] = useState('all');
+      const [showTemplateLibrary, setShowTemplateLibrary] = useState(false);
 
       // F11: GIF Smart Decomposition
       const [gifDropZone, setGifDropZone] = useState(false);
@@ -1219,6 +1230,151 @@
       // P1-03: Animation blueprint preview (state flow visualization)
       const [showBlueprint, setShowBlueprint] = useState(false);
       const blueprintCanvasRef = useRef(null);
+
+      // P1-03: Export blueprint as PNG
+      const exportBlueprint = useCallback(() => {
+        const canvas = blueprintCanvasRef.current;
+        if (!canvas) return;
+        
+        // Create a larger canvas for export with better quality
+        const exportCanvas = document.createElement('canvas');
+        exportCanvas.width = 600;
+        exportCanvas.height = 600;
+        const ctx = exportCanvas.getContext('2d');
+        
+        // Fill background
+        ctx.fillStyle = '#1a1a2e';
+        ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+        
+        // Scale factor
+        const scale = 2;
+        const width = canvas.width * scale;
+        const height = canvas.height * scale;
+        
+        // Draw title
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 16px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('ANIMATION STATE MACHINE', exportCanvas.width / 2, 30);
+        
+        // Draw frame info
+        ctx.font = '12px monospace';
+        ctx.fillStyle = '#888888';
+        ctx.fillText(`States: ${animGroups.length} | Transitions: ${animStateMachine.transitions.length}`, exportCanvas.width / 2, 50);
+        
+        // Define node positions (scaled)
+        const nodePositions = {
+          'idle': { x: width / 2, y: 100 },
+          'walk': { x: width / 4, y: 200 },
+          'run': { x: width / 4, y: 320 },
+          'attack': { x: width * 3 / 4, y: 200 },
+          'hurt': { x: width / 2, y: 320 },
+          'death': { x: width * 3 / 4, y: 320 }
+        };
+
+        // Draw transitions as arrows
+        ctx.strokeStyle = '#666666';
+        ctx.lineWidth = 2;
+        animStateMachine.transitions.forEach(t => {
+          const from = nodePositions[t.from];
+          const to = nodePositions[t.to];
+          if (from && to) {
+            ctx.beginPath();
+            ctx.moveTo(from.x, from.y + 30 * scale);
+            ctx.lineTo(to.x, to.y - 30 * scale);
+            ctx.stroke();
+
+            // Draw arrowhead
+            const angle = Math.atan2(to.y - from.y, to.x - from.x);
+            ctx.beginPath();
+            ctx.moveTo(to.x, to.y - 30 * scale);
+            ctx.lineTo(to.x - 12 * Math.cos(angle - Math.PI / 6), to.y - 30 * scale - 12 * Math.sin(angle - Math.PI / 6));
+            ctx.lineTo(to.x - 12 * Math.cos(angle + Math.PI / 6), to.y - 30 * scale - 12 * Math.sin(angle + Math.PI / 6));
+            ctx.fillStyle = '#666666';
+            ctx.fill();
+            
+            // Draw event label
+            const midX = (from.x + to.x) / 2;
+            const midY = (from.y + to.y) / 2;
+            ctx.fillStyle = '#aaaaaa';
+            ctx.font = '10px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText(t.event, midX, midY - 5);
+          }
+        });
+
+        // Draw nodes for each animation state
+        const groupMap = {};
+        animGroups.forEach(g => { groupMap[g.name.toLowerCase()] = g; });
+
+        Object.entries(nodePositions).forEach(([state, pos]) => {
+          const group = groupMap[state];
+          const color = group ? group.color : '#666666';
+          const isActive = currentAnimState === state;
+
+          // Draw node circle
+          ctx.beginPath();
+          ctx.arc(pos.x, pos.y, 35 * scale, 0, Math.PI * 2);
+          ctx.fillStyle = isActive ? color : '#333333';
+          ctx.fill();
+          ctx.strokeStyle = color;
+          ctx.lineWidth = isActive ? 4 : 2;
+          ctx.stroke();
+
+          // Draw state label
+          ctx.fillStyle = '#ffffff';
+          ctx.font = 'bold 12px monospace';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(state.toUpperCase(), pos.x, pos.y);
+          
+          // Draw group info if exists
+          if (group) {
+            ctx.font = '9px monospace';
+            ctx.fillStyle = '#cccccc';
+            ctx.fillText(`(${group.frameIds.length} frames)`, pos.x, pos.y + 16);
+          }
+        });
+        
+        // Export as PNG
+        exportCanvas.toBlob(blob => {
+          if (blob) {
+            saveAs(blob, `anim_blueprint_${Date.now()}.png`);
+          }
+        });
+      }, [animGroups, animStateMachine, currentAnimState]);
+
+      // P1-03: Export frame events as JSON
+      const exportFrameEvents = useCallback(() => {
+        const eventsData = {
+          version: '1.0',
+          exportedAt: new Date().toISOString(),
+          states: animGroups.map(g => ({
+            id: g.id,
+            name: g.name,
+            frameCount: g.frameIds.length,
+            events: g.frameIds.map((frameId, idx) => {
+              const eventKey = `${g.id}_${idx}`;
+              const eventData = frameEvents[eventKey];
+              return {
+                frameIndex: idx,
+                hasEvent: !!eventData,
+                eventType: eventData?.type || null,
+                eventValue: eventData?.value || null
+              };
+            })
+          })),
+          transitions: animStateMachine.transitions.map(t => ({
+            from: t.from,
+            to: t.to,
+            event: t.event,
+            condition: t.condition
+          }))
+        };
+        
+        const blob = new Blob([JSON.stringify(eventsData, null, 2)], { type: 'application/json' });
+        saveAs(blob, `frame_events_${Date.now()}.json`);
+      }, [animGroups, frameEvents, animStateMachine]);
 
       const drawBlueprint = useCallback(() => {
         const canvas = blueprintCanvasRef.current;
@@ -4566,7 +4722,86 @@
 
               // Palette Settings
               frames.length > 0 && currentFrame && React.createElement("div", { className: "card" },
-                React.createElement("p", { className: "section-title" }, "调色板"),
+                React.createElement("div", { className: "flex items-center justify-between mb-2" },
+                  React.createElement("p", { className: "section-title mb-0" }, "调色板"),
+                  React.createElement("button", {
+                    onClick: () => setShowPaletteLibrary(!showPaletteLibrary),
+                    className: `btn ${showPaletteLibrary ? 'btn-primary' : 'btn-secondary'}`,
+                    style: { fontSize: '11px', padding: '4px 8px' }
+                  }, showPaletteLibrary ? "隐藏调色板库" : "📚 调色板库")
+                ),
+                // M1-1: Palette Library Modal
+                showPaletteLibrary && React.createElement("div", { className: "mb-3 p-3 rounded", style: { background: 'var(--bg-main)', border: '1px solid var(--border)' } },
+                  React.createElement("div", { className: "flex gap-2 mb-2" },
+                    React.createElement("input", {
+                      type: "text",
+                      className: "input flex-1",
+                      placeholder: "搜索调色板...",
+                      value: paletteSearchQuery,
+                      onChange: e => setPaletteSearchQuery(e.target.value)
+                    })
+                  ),
+                  React.createElement("div", { className: "flex gap-1 mb-2 flex-wrap" },
+                    React.createElement("button", {
+                      onClick: () => setPaletteCategoryFilter('all'),
+                      className: `btn ${paletteCategoryFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`,
+                      style: { fontSize: '10px', padding: '2px 6px' }
+                    }, "全部"),
+                    typeof getCategories !== 'undefined' && getCategories().map(cat =>
+                      React.createElement("button", {
+                        key: cat.id,
+                        onClick: () => setPaletteCategoryFilter(cat.id),
+                        className: `btn ${paletteCategoryFilter === cat.id ? 'btn-primary' : 'btn-secondary'}`,
+                        style: { fontSize: '10px', padding: '2px 6px' }
+                      }, cat.name + `(${cat.count})`)
+                    )
+                  ),
+                  React.createElement("div", { className: "grid grid-cols-2 gap-2", style: { maxHeight: '200px', overflowY: 'auto' } },
+                    (() => {
+                      const allPalettes = typeof getAllPalettes === 'function' ? getAllPalettes() : [];
+                      let filtered = allPalettes;
+                      if (paletteCategoryFilter !== 'all') {
+                        filtered = filtered.filter(p => p.category === paletteCategoryFilter);
+                      }
+                      if (paletteSearchQuery) {
+                        const q = paletteSearchQuery.toLowerCase();
+                        filtered = filtered.filter(p => 
+                          p.name.toLowerCase().includes(q) ||
+                          p.description.toLowerCase().includes(q) ||
+                          (p.tags && p.tags.some(t => t.toLowerCase().includes(q)))
+                        );
+                      }
+                      return filtered.slice(0, 20).map(palette =>
+                        React.createElement("div", {
+                          key: palette.id,
+                          className: `p-2 rounded cursor-pointer ${paletteMode === palette.id ? 'ring-2' : ''}`,
+                          style: { 
+                            background: 'var(--bg-card)', 
+                            border: '1px solid var(--border)',
+                            borderColor: paletteMode === palette.id ? 'var(--accent)' : 'var(--border)'
+                          },
+                          onClick: () => {
+                            setPaletteMode(palette.id);
+                            setShowPaletteLibrary(false);
+                            setPaletteSearchQuery('');
+                          }
+                        },
+                          React.createElement("div", { className: "flex gap-1 mb-1 flex-wrap" },
+                            palette.colors.slice(0, 8).map((c, i) =>
+                              React.createElement("div", {
+                                key: i,
+                                className: "w-4 h-4 rounded-sm",
+                                style: { background: c }
+                              })
+                            )
+                          ),
+                          React.createElement("p", { className: "text-xs font-bold truncate" }, palette.name),
+                          React.createElement("p", { className: "text-xs", style: { color: 'var(--text-muted)' } }, palette.colors.length + '色')
+                        )
+                      );
+                    })()
+                  )
+                ),
                 React.createElement("div", { className: "flex gap-1 flex-wrap mb-3" },
                   currentPaletteColors.map((c,i) => React.createElement("div", { key: i, className: "w-6 h-6 rounded-sm", style: {background: typeof c === 'string' ? c : `rgb(${c[0]},${c[1]},${c[2]})`, border: '1px solid var(--border)'} }))
                 ),
@@ -5487,7 +5722,62 @@
               React.createElement("div", { className: "lg:col-span-2 space-y-4" },
                 // Preset buttons
                 React.createElement("div", { className: "card" },
-                  React.createElement("p", { className: "section-title mb-3" }, "➕ 添加预设动画"),
+                  React.createElement("div", { className: "flex items-center justify-between mb-3" },
+                    React.createElement("p", { className: "section-title mb-0" }, "➕ 添加预设动画"),
+                    React.createElement("button", {
+                      onClick: () => setShowTemplateLibrary(!showTemplateLibrary),
+                      className: `btn ${showTemplateLibrary ? 'btn-primary' : 'btn-secondary'}`,
+                      style: { fontSize: '11px', padding: '4px 8px' }
+                    }, showTemplateLibrary ? "精简模式" : "📚 模板库")
+                  ),
+                  // M1-2: Animation Template Library
+                  showTemplateLibrary && React.createElement("div", { className: "mb-3 p-3 rounded", style: { background: 'var(--bg-main)', border: '1px solid var(--border)' } },
+                    React.createElement("div", { className: "flex gap-1 mb-2 flex-wrap" },
+                      React.createElement("button", {
+                        onClick: () => setTemplateCategory('all'),
+                        className: `btn ${templateCategory === 'all' ? 'btn-primary' : 'btn-secondary'}`,
+                        style: { fontSize: '10px', padding: '2px 6px' }
+                      }, "全部"),
+                      typeof getCategories === 'function' && getCategories().map(cat =>
+                        React.createElement("button", {
+                          key: cat.id,
+                          onClick: () => setTemplateCategory(cat.id),
+                          className: `btn ${templateCategory === cat.id ? 'btn-primary' : 'btn-secondary'}`,
+                          style: { fontSize: '10px', padding: '2px 6px' }
+                        }, `${cat.icon} ${cat.name} (${cat.count})`)
+                      )
+                    ),
+                    React.createElement("div", { className: "grid grid-cols-2 gap-2", style: { maxHeight: '200px', overflowY: 'auto' } },
+                      (() => {
+                        const allTemplates = typeof getAllTemplates === 'function' ? getAllTemplates() : [];
+                        let filtered = allTemplates;
+                        if (templateCategory !== 'all') {
+                          filtered = filtered.filter(t => t.category === templateCategory);
+                        }
+                        return filtered.map(tpl =>
+                          React.createElement("div", {
+                            key: tpl.id,
+                            className: "p-2 rounded cursor-pointer",
+                            style: { background: 'var(--bg-card)', border: '1px solid var(--border)' },
+                            onClick: () => {
+                              const preset = ANIMATION_PRESETS.find(p => p.id === tpl.category);
+                              if (preset) {
+                                const newId = createAnimGroup(preset);
+                                setSelectedAnimGroup(newId);
+                              }
+                              setShowTemplateLibrary(false);
+                            }
+                          },
+                            React.createElement("p", { className: "text-xs font-bold" }, tpl.name),
+                            React.createElement("p", { className: "text-xs", style: { color: 'var(--text-muted)' } },
+                              `${tpl.frames}帧 | ${tpl.loop ? '循环' : '一次性'} | ${tpl.duration}ms`
+                            ),
+                            React.createElement("p", { className: "text-xs truncate", style: { color: 'var(--text-muted)' } }, tpl.description)
+                          )
+                        );
+                      })()
+                    )
+                  ),
                   React.createElement("div", { className: "flex gap-2 flex-wrap" },
                     ANIMATION_PRESETS.map(preset =>
                       React.createElement("button", {
@@ -5644,11 +5934,18 @@
             React.createElement("div", { className: "card mt-4" },
               React.createElement("div", { className: "flex items-center justify-between mb-3" },
                 React.createElement("p", { className: "section-title" }, "🔀 动画状态机"),
-                React.createElement("button", {
-                  onClick: () => { setShowBlueprint(!showBlueprint); setTimeout(() => drawBlueprint(), 100); },
-                  className: `btn ${showBlueprint ? 'btn-primary' : 'btn-secondary'}`,
-                  style: { fontSize: '12px', padding: '4px 8px' }
-                }, showBlueprint ? "隐藏蓝图" : "显示蓝图")
+                React.createElement("div", { className: "flex gap-2" },
+                  React.createElement("button", {
+                    onClick: () => { setShowBlueprint(!showBlueprint); setTimeout(() => drawBlueprint(), 100); },
+                    className: `btn ${showBlueprint ? 'btn-primary' : 'btn-secondary'}`,
+                    style: { fontSize: '12px', padding: '4px 8px' }
+                  }, showBlueprint ? "隐藏蓝图" : "显示蓝图"),
+                  React.createElement("button", {
+                    onClick: exportBlueprint,
+                    className: "btn btn-secondary",
+                    style: { fontSize: '12px', padding: '4px 8px' }
+                  }, "📤 导出蓝图PNG")
+                )
               ),
 
               // Current state display
@@ -5700,7 +5997,14 @@
                 const group = animGroups.find(g => g.id === selectedAnimGroup);
                 if (!group || group.frameIds.length === 0) return null;
                 return React.createElement("div", null,
-                  React.createElement("p", { className: "text-xs mb-2", style: { color: 'var(--text-muted)' } }, "帧事件触发器:"),
+                  React.createElement("div", { className: "flex items-center justify-between mb-2" },
+                    React.createElement("p", { className: "text-xs", style: { color: 'var(--text-muted)' } }, "帧事件触发器:"),
+                    React.createElement("button", {
+                      onClick: exportFrameEvents,
+                      className: "btn btn-secondary",
+                      style: { fontSize: '10px', padding: '2px 6px' }
+                    }, "📤 JSON")
+                  ),
                   React.createElement("div", { className: "space-y-1" },
                     group.frameIds.map((frameId, idx) => {
                       const eventKey = `${group.id}_${idx}`;
