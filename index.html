@@ -3770,6 +3770,27 @@
         }, 500);
       };
 
+      // ========== M5: Open in Pixel PV ==========
+      const openInPixelPV = () => {
+        // 获取当前调色板颜色
+        const palette = palettes[activePalette] || palettes['pixel-art'];
+        const colors = palette.map(c => c.startsWith('#') ? c : '#' + c).slice(0, 5);
+        
+        // 构建URL参数
+        const params = new URLSearchParams({
+          template: 'battle',
+          text: 'PIXEL GAME',
+          fontSize: '72',
+          color: colors[0] || '#ff4444',
+          strokeColor: '#000000',
+          strokeWidth: '4'
+        });
+        
+        // 打开Pixel PV
+        const pvUrl = 'https://raglike.github.io/pixel-pv/?' + params.toString();
+        window.open(pvUrl, '_blank');
+      };
+
       const getFrameThumbnail = (frame) => {
         const canvas = document.createElement('canvas');
         canvas.width = 48;
@@ -4564,6 +4585,10 @@
                 disabled: frames.length < 1 || isExporting,
                 className: "btn btn-secondary"
               }, "📦 PNG序列"),
+              React.createElement("button", {
+                onClick: openInPixelPV,
+                className: "btn btn-primary"
+              }, "🎬 PV"),
               React.createElement("div", { className: "flex items-center gap-2" },
                 React.createElement("span", { className: "text-sm", style: { color: 'var(--text-secondary)' } }, "列"),
                 React.createElement("input", {
@@ -5134,6 +5159,11 @@
                     disabled: frames.length < 1 || isExporting,
                     className: "btn btn-secondary w-full justify-center"
                   }, "📦 雪碧图 + JSON"),
+                  React.createElement("button", {
+                    onClick: openInPixelPV,
+                    className: "btn btn-primary w-full justify-center",
+                    style: { background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }
+                  }, "🎬 制作游戏PV"),
                   // F43: Plugin export options
                   getPluginExportMenuItems().map((item, idx) =>
                     React.createElement("button", {
